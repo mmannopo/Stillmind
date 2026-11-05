@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f2">
+  <title>Stillmind — Sudoku, at your pace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="Stillmind home"><span class="brand-mark">s</span><span>stillmind</span></a>
+      <button class="icon-button" id="profileButton" aria-label="Your progress"><span class="profile-dot">✿</span></button>
+    </header>
+
+    <main>
+      <section class="screen home-screen" id="homeScreen">
+        <div class="welcome-row"><div><p class="eyebrow" id="welcomeEyebrow">A LITTLE SPACE FOR YOUR MIND</p><h1 id="welcomeTitle">Good morning,<br><em>let’s play.</em></h1></div><div class="sun-art" aria-hidden="true"><span>✳</span></div></div>
+        <div class="streak-card"><div class="streak-icon">☼</div><div class="streak-copy"><strong id="streakText">Your first day starts here</strong><span>One gentle puzzle at a time</span></div><div class="streak-count"><b id="streakCount">0</b><small>DAY STREAK</small></div></div>
+
+        <div class="section-heading"><div><p class="eyebrow">YOUR DAILY PAUSE</p><h2>Ready when you are</h2></div><span class="date-chip" id="dateLabel"></span></div>
+        <article class="daily-card">
+          <div class="daily-copy"><span class="tag"><span class="tag-dot"></span> TODAY’S PUZZLE</span><h3>Sudoku</h3><p>A quiet challenge, with a little guidance whenever you need it.</p><div class="daily-meta"><span>◷ &nbsp;About 8 min</span><span>◉ &nbsp;Beginner</span></div><button class="primary-button" id="playButton">Let’s play <span>↗</span></button></div>
+          <div class="mini-board" aria-hidden="true"><span>4</span><span></span><span>8</span><span></span><span>1</span><span></span><span>7</span><span></span><span>3</span></div>
+          <div class="flower-stamp" aria-hidden="true">✿</div>
+        </article>
+
+        <div class="section-heading progress-heading"><div><p class="eyebrow">YOUR JOURNEY</p><h2>Growing at your pace</h2></div><button class="text-button" id="resetProgressButton">Start fresh ↗</button></div>
+        <div class="progress-grid"><div class="progress-card"><span class="progress-icon lilac">◷</span><b id="puzzlesCount">0</b><span>puzzles finished</span></div><div class="progress-card"><span class="progress-icon peach">✧</span><b id="minutesCount">0</b><span>minutes of focus</span></div><div class="progress-card wide"><div class="skill-title"><span class="progress-icon mint">↗</span><div><b>Skills you’re building</b><span>Every step counts</span></div></div><div class="skill-pills" id="skillPills"><span>Observation</span><span>Digit exclusions</span></div></div></div>
+        <div class="gentle-note"><span>✦</span><p>No timers to beat. No one to catch up to. Just you, getting a little sharper.</p></div>
+      </section>
+
+      <section class="screen game-screen hidden" id="gameScreen">
+        <div class="game-nav"><button class="back-button" id="backButton">← <span>Today</span></button><div class="game-title"><span class="eyebrow">YOUR DAILY PAUSE</span><strong>Sudoku</strong></div><button class="icon-button help-button" id="rulesButton" aria-label="How to play">?</button></div>
+        <div class="game-heading"><div><p class="eyebrow">TAKE YOUR TIME</p><h1>A little puzzle,<br><em>a little progress.</em></h1></div><div class="timer-pill">◷ <span id="timer">00:00</span></div></div>
+        <div class="difficulty-row"><span class="difficulty-label">CHOOSE YOUR PACE</span><div class="difficulty-switch" role="group" aria-label="Difficulty"><button data-level="Gentle" class="active">Gentle</button><button data-level="Steady">Steady</button><button data-level="Spicy">Spicy</button></div></div>
+        <div class="board-wrap"><div class="sudoku-board" id="board" role="grid" aria-label="Sudoku puzzle"></div></div>
+        <div class="game-tools"><button class="tool-button" id="notesButton"><span>✎</span> Notes <i id="notesState">off</i></button><button class="tool-button" id="mistakesButton"><span>◎</span> Check mistakes <i id="mistakesState">off</i></button><button class="tool-button hint-tool" id="hintButton"><span>✧</span> Teach me</button></div>
+        <div class="number-pad" id="numberPad" aria-label="Number pad"></div>
+        <div class="game-footer"><span>Take a breath. You’re doing great.</span><button id="eraseButton">⌫ Erase</button></div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </section>
+    </main>
+    <footer class="bottom-nav"><button class="nav-item active" id="homeTab"><span>⌂</span>Today</button><button class="nav-item" id="progressTab"><span>◷</span>My progress</button></footer>
+  </div>
+
+  <dialog id="modal"><div class="modal-content"><button class="modal-close" id="modalClose" aria-label="Close">×</button><div class="modal-sparkle">✿</div><p class="eyebrow" id="modalEyebrow">A GENTLE START</p><h2 id="modalTitle">Sudoku, without the pressure.</h2><div class="modal-body" id="modalBody"></div><div class="modal-actions" id="modalActions"></div></div></dialog>
+  <script src="app.js"></script>
+</body>
+</html>
