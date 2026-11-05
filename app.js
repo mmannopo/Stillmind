@@ -4,29 +4,36 @@ const SOLUTION = [
   [9,6,1,5,3,7,2,8,4],[2,8,7,4,1,9,6,3,5],[3,4,5,2,8,6,1,7,9]
 ];
 const PUZZLES = {
-  Gentle: [
+  Beginner: [
     [5,3,0,0,7,0,0,0,0],[6,0,0,1,9,5,0,0,0],[0,9,8,0,0,0,0,6,0],
     [8,0,0,0,6,0,0,0,3],[4,0,0,8,0,3,0,0,1],[7,0,0,0,2,0,0,0,6],
     [0,6,0,0,0,0,2,8,0],[0,0,0,4,1,9,0,0,5],[0,0,0,0,8,0,0,7,9]
   ],
-  Steady: [
+  Easy: [
     [0,0,0,0,0,0,0,1,2],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,5,6,0],
     [0,0,0,0,6,0,0,0,3],[4,0,0,8,0,3,0,0,1],[7,0,0,0,2,0,0,0,0],
     [0,6,0,0,0,0,0,0,0],[0,0,0,0,0,9,0,0,0],[3,4,0,0,0,0,0,0,0]
   ],
-  Spicy: [
+  Medium: [
     [0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,5,0,0],
     [0,0,0,0,6,0,0,0,0],[4,0,0,0,0,0,0,0,1],[0,0,0,0,2,0,0,0,0],
     [0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0]
   ]
 };
+function makeTierPuzzle(clues,seed){const board=SOLUTION.map(row=>row.slice());let order=Array.from({length:81},(_,i)=>i),random=seed;for(let i=80;i>0;i--){random=(random*1664525+1013904223)>>>0;const j=random%(i+1);[order[i],order[j]]=[order[j],order[i]]}for(const i of order){if(board.flat().filter(Boolean).length<=clues)break;board[Math.floor(i/9)][i%9]=0}return board}
+PUZZLES.Beginner=makeTierPuzzle(40,11);PUZZLES.Easy=makeTierPuzzle(34,74);PUZZLES.Medium=makeTierPuzzle(30,832);PUZZLES.Hard=makeTierPuzzle(26,641);PUZZLES.Expert=makeTierPuzzle(20,1729);
 const $ = (s) => document.querySelector(s);
 const state = {
   puzzle: [], values: [], notes: Array.from({length:81},()=>new Set()), selected: null,
-  level: 'Gentle', notesMode: false, checkMistakes: false, startedAt: Date.now(),
+  level: localStorage.getItem('stillmindDifficulty')||'Beginner', notesMode: false, checkMistakes: false, startedAt: Date.now(),
   elapsed: 0, timerInterval: null, toastTimeout: null,
   stats: JSON.parse(localStorage.getItem('stillmindStats') || '{"finished":0,"minutes":0,"streak":0,"lastDay":"","skills":[]}')
 };
+const GAME_KEY='stillmindActiveSudoku';
+const THEMES=['green','purple','pink','blue','white','black'];
+function applyTheme(theme=localStorage.getItem('stillmindTheme')||'green'){const selected=THEMES.includes(theme)?theme:'green';document.documentElement.dataset.theme=selected;localStorage.setItem('stillmindTheme',selected)}
+function saveActiveGame(){if(!state.puzzle.length)return;state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);localStorage.setItem(GAME_KEY,JSON.stringify({level:state.level,puzzle:state.puzzle,values:state.values,notes:state.notes.map(s=>[...s]),selected:state.selected,elapsed:state.elapsed,savedAt:new Date().toISOString()}))}
+function getSavedGame(){try{return JSON.parse(localStorage.getItem(GAME_KEY)||'null')}catch{return null}}
 
 function saveStats(){localStorage.setItem('stillmindStats',JSON.stringify(state.stats));renderStats()}
 function dayKey(date=new Date()){return `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`}
@@ -47,14 +54,17 @@ function showModal(title,body,actions=[],eyebrow='A GENTLE START'){
 }
 function showHome(){clearInterval(state.timerInterval);$('#homeScreen').classList.remove('hidden');$('#gameScreen').classList.add('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(b=>b.classList.toggle('active',b.id==='homeTab'));renderStats()}
 function startGame(level=state.level){
+  if(!PUZZLES[level])level='Beginner';
   state.level=level;state.puzzle=PUZZLES[level].map(row=>row.slice());state.values=PUZZLES[level].map(row=>row.slice());
+  localStorage.setItem('stillmindDifficulty',level);
   state.notes=Array.from({length:81},()=>new Set());state.selected=null;state.elapsed=0;state.startedAt=Date.now();
   $('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('.bottom-nav').classList.add('hidden');
   document.querySelectorAll('.difficulty-switch button').forEach(b=>b.classList.toggle('active',b.dataset.level===level));
   $('#notesState').textContent=state.notesMode?'on':'off';$('#mistakesState').textContent=state.checkMistakes?'on':'off';
   $('#notesButton').classList.toggle('on',state.notesMode);$('#mistakesButton').classList.toggle('on',state.checkMistakes);
-  renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();
+  renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame();
 }
+function resumeGame(saved=getSavedGame()){if(!saved)return startGame(state.level);state.level=saved.level||'Beginner';state.puzzle=saved.puzzle;state.values=saved.values;state.notes=(saved.notes||Array.from({length:81},()=>[])).map(s=>new Set(s));state.selected=saved.selected??null;state.elapsed=saved.elapsed||0;state.startedAt=Date.now()-state.elapsed*1000;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('.bottom-nav').classList.add('hidden');renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer()}
 function updateTimer(){state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);$('#timer').textContent=`${String(Math.floor(state.elapsed/60)).padStart(2,'0')}:${String(state.elapsed%60).padStart(2,'0')}`}
 function getCandidates(r,c){
   if(state.values[r][c])return [];
@@ -73,7 +83,7 @@ function renderBoard(){
     if(state.selected!==null){const sr=Math.floor(state.selected/9),sc=state.selected%9,sv=state.values[sr][sc];if((sr===r||sc===c||(Math.floor(sr/3)===Math.floor(r/3)&&Math.floor(sc/3)===Math.floor(c/3)))&&idx!==state.selected)el.classList.add('peer');if(sv&&v===sv&&idx!==state.selected)el.classList.add('same-number')}
     if(v){el.textContent=v;if(state.checkMistakes&&v!==SOLUTION[r][c]&&!state.puzzle[r][c])el.classList.add('mistake')}
     else if(state.notes[idx].size){const note=document.createElement('span');note.className='notes';note.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<span>${state.notes[idx].has(n)?n:''}</span>`).join('');el.appendChild(note)}
-    el.addEventListener('click',()=>{state.selected=idx;renderBoard()});board.appendChild(el)
+    el.addEventListener('click',()=>{state.selected=idx;renderBoard();saveActiveGame()});board.appendChild(el)
   }
 }
 function renderPad(){const pad=$('#numberPad');pad.innerHTML='';for(let n=1;n<=9;n++){const b=document.createElement('button');b.textContent=n;b.setAttribute('aria-label',`Enter ${n}`);const count=state.values.flat().filter(v=>v===n).length;b.disabled=count>=9;b.onclick=()=>enterNumber(n);pad.appendChild(b)}}
@@ -81,12 +91,12 @@ function enterNumber(n){
   if(state.selected===null){showToast('Choose a square first.');return}
   const r=Math.floor(state.selected/9),c=state.selected%9;if(state.puzzle[r][c]){showToast('That number is part of the puzzle.');return}
   if(state.notesMode&&!state.values[r][c]){state.notes[state.selected].has(n)?state.notes[state.selected].delete(n):state.notes[state.selected].add(n)}else{state.values[r][c]=n;state.notes[state.selected].clear()}
-  renderBoard();renderPad();if(state.values.flat().every(Boolean))finishGame()
+  renderBoard();renderPad();saveActiveGame();if(state.values.flat().every(Boolean))finishGame()
 }
 function finishGame(){
   const wrong=state.values.some((row,r)=>row.some((v,c)=>v!==SOLUTION[r][c]));
   if(wrong){showToast('A few numbers need another look. Turn on mistake check or ask for a hint.');return}
-  clearInterval(state.timerInterval);state.stats.finished++;state.stats.minutes+=Math.max(1,Math.round(state.elapsed/60));
+  clearInterval(state.timerInterval);localStorage.removeItem(GAME_KEY);state.stats.finished++;state.stats.minutes+=Math.max(1,Math.round(state.elapsed/60));
   const today=dayKey(),yesterday=dayKey(new Date(Date.now()-86400000));if(state.stats.lastDay!==today){state.stats.streak=state.stats.lastDay===yesterday?state.stats.streak+1:1;state.stats.lastDay=today}
   saveStats();showModal('You did it, at your pace.','<p>Beautiful work. You completed a Sudoku and gave your mind a little room to grow.</p><div class="hint-callout">Time spent: '+$('#timer').textContent+'. Your progress is saved on this device.</div>',[{label:'Back to today',primary:true,onClick:showHome}], 'A MOMENT TO CELEBRATE');
 }
@@ -106,12 +116,17 @@ function teachMe(){
     showModal('Let’s scan the possibilities.',`<p>We’ve highlighted <b>row ${h.r+1}, column ${h.c+1}</b> because it has one of the fewest open choices right now.</p><div class="hint-callout">The possible digits here are <b>${h.candidates.join(', ')}</b>. Each filled number in the same row, column, and 3×3 box rules out a candidate.</div><p class="hint-step">Try scanning one digit at a time across the highlighted row or box. We’ll add deeper pattern lessons as your practice grows.</p>`,[{label:'Got it',primary:true}],'SUDOKU LESSON');
   }
 }
-function showTutorial(){showModal('Sudoku, without the pressure.','<p>Fill every row, column, and 3×3 box with the numbers 1 through 9. Each number appears once in each.</p><ul><li>Tap an empty square, then choose a number.</li><li>Turn on <b>Notes</b> to pencil in possibilities.</li><li>Ask <b>Teach me</b> for a gentle, board-aware hint.</li></ul><p>Your progress stays on this device.</p>',[{label:'Show me the basics',primary:true,onClick:()=>showModal('Start with what’s missing.','<p>Look across a row, down a column, or inside a 3×3 box. If eight numbers are already there, the missing one has only one place to go.</p><div class="hint-callout">You can turn on mistake checking or ask for a lesson whenever you feel stuck.</div>',[{label:'Let’s play',primary:true,onClick:()=>startGame()}],'YOUR FIRST PATTERN')},{label:'Skip tutorial',onClick:()=>startGame()}]);}
+function showTutorial(){showModal('Sudoku, without the pressure.','<p>Fill every row, column, and 3×3 box with the numbers 1 through 9. Each number appears once in each.</p><ul><li>Tap an empty square, then choose a number.</li><li>Turn on <b>Notes</b> to pencil in possibilities.</li><li>Ask <b>Teach me</b> for a gentle, board-aware hint.</li></ul><label class="remember-choice"><input id="rememberTutorialChoice" type="checkbox" checked> Remember my choice for future games</label><p>Your progress stays on this device.</p>',[{label:'Show me the basics',primary:true,onClick:()=>{localStorage.setItem('stillmindTutorialSeen','true');if($('#rememberTutorialChoice').checked)localStorage.setItem('stillmindTutorialChoice','basics');showModal('Start with what’s missing.','<p>Look across a row, down a column, or inside a 3×3 box. If eight numbers are already there, the missing one has only one place to go.</p><div class="hint-callout">You can turn on mistake checking or ask for a lesson whenever you feel stuck.</div>',[{label:'Let’s play',primary:true,onClick:()=>startGame()}],'YOUR FIRST PATTERN') }},{label:'Skip tutorial',onClick:()=>{localStorage.setItem('stillmindTutorialSeen','true');if($('#rememberTutorialChoice').checked)localStorage.setItem('stillmindTutorialChoice','skip');startGame()}}]);}
 function resetProgress(){showModal('A fresh start, whenever you need one.','<p>Progress is only saved on this device. If you’re moving to a new phone, you can begin again with a short skill check to find a comfortable level.</p><p>This will clear your local streak and puzzle totals.</p>',[{label:'Keep my progress',onClick:()=>{}},{label:'Clear progress',primary:true,onClick:()=>{localStorage.removeItem('stillmindStats');state.stats={finished:0,minutes:0,streak:0,lastDay:'',skills:[]};saveStats();showToast('Your local progress has been cleared.')}}],'YOUR PROGRESS');}
 function showRules(){showModal('A few rules, then you’re off.','<p>Fill each row, column, and 3×3 box with digits 1–9. A digit can only appear once in each.</p><p><b>Notes</b> help you keep track of candidates. <b>Check mistakes</b> highlights entries that don’t match this puzzle’s solution. <b>Teach me</b> explains a real deduction when one is available.</p>',[{label:'Got it',primary:true}],'SUDOKU BASICS')}
 
-$('#playButton').addEventListener('click',()=>showTutorial());
-$('#backButton').addEventListener('click',showHome);
+function chooseDifficulty(){const levels=['Beginner','Easy','Medium','Hard','Expert'];const saved=getSavedGame();const selector=`<p>Choose your difficulty before the puzzle begins. You can change it next time you start a new game.</p>${saved?'<p class="saved-game-note">There is an unfinished puzzle saved on this device.</p>':''}<div class="start-levels">${levels.map(level=>`<button class="level-choice ${state.level===level?'selected':''}" data-start-level="${level}"><b>${level}</b><small>${({Beginner:'36–45 clues',Easy:'32–36 clues',Medium:'28–32 clues',Hard:'24–28 clues',Expert:'17–24 clues'})[level]}</small></button>`).join('')}</div>`;
+  showModal('Choose your Sudoku pace',selector,[...(saved?[{label:'Continue last game',primary:true,onClick:()=>resumeGame(saved)}]:[]),{label:'Start new game',primary:!saved,onClick:()=>{if(localStorage.getItem('stillmindTutorialSeen')!=='true')showTutorial();else startGame(state.level)}}],'NEW PUZZLE');
+  document.querySelectorAll('[data-start-level]').forEach(button=>button.addEventListener('click',()=>{state.level=button.dataset.startLevel;localStorage.setItem('stillmindDifficulty',state.level);document.querySelectorAll('[data-start-level]').forEach(b=>b.classList.toggle('selected',b===button))}));
+}
+function openSettings(){const theme=localStorage.getItem('stillmindTheme')||'green',music=localStorage.getItem('stillmindMusic')!=='off',sfx=localStorage.getItem('stillmindSfx')!=='off';showModal('Make Stillmind yours.',`<div class="settings-section"><h3>Sound</h3><label class="settings-row">Music <input type="checkbox" id="musicToggle" ${music?'checked':''}></label><label class="settings-row">Sound effects <input type="checkbox" id="sfxToggle" ${sfx?'checked':''}></label></div><div class="settings-section"><h3>Color theme</h3><div class="theme-options">${THEMES.map(t=>`<button class="theme-choice theme-${t} ${theme===t?'selected':''}" data-theme-choice="${t}" aria-label="${t} theme" aria-pressed="${theme===t}"><span></span>${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></div><div class="settings-section"><h3>Support</h3><a class="support-link" href="mailto:hello@stillmind.app?subject=Stillmind%20support">Contact support</a></div>` ,[{label:'Done',primary:true}],'SETTINGS');$('#musicToggle').addEventListener('change',e=>localStorage.setItem('stillmindMusic',e.target.checked?'on':'off'));$('#sfxToggle').addEventListener('change',e=>localStorage.setItem('stillmindSfx',e.target.checked?'on':'off'));document.querySelectorAll('[data-theme-choice]').forEach(b=>b.addEventListener('click',()=>{applyTheme(b.dataset.themeChoice);document.querySelectorAll('[data-theme-choice]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',String(x===b))})}))}
+$('#playButton').addEventListener('click',chooseDifficulty);
+$('#backButton').addEventListener('click',()=>{saveActiveGame();showHome()});
 $('#notesButton').addEventListener('click',()=>{state.notesMode=!state.notesMode;$('#notesState').textContent=state.notesMode?'on':'off';$('#notesButton').classList.toggle('on',state.notesMode);showToast(state.notesMode?'Notes are on.':'Notes are off.')});
 $('#mistakesButton').addEventListener('click',()=>{state.checkMistakes=!state.checkMistakes;$('#mistakesState').textContent=state.checkMistakes?'on':'off';$('#mistakesButton').classList.toggle('on',state.checkMistakes);renderBoard();showToast(state.checkMistakes?'Mistake checking is on.':'Mistake checking is off.')});
 $('#hintButton').addEventListener('click',teachMe);
@@ -119,13 +134,11 @@ $('#eraseButton').addEventListener('click',()=>{if(state.selected===null)return 
 $('#rulesButton').addEventListener('click',showRules);
 $('#modalClose').addEventListener('click',()=>$('#modal').close());
 $('#resetProgressButton').addEventListener('click',resetProgress);
-$('#profileButton').addEventListener('click',()=>{showHome();document.querySelector('.progress-heading').scrollIntoView({behavior:'smooth',block:'center'})});
+$('#settingsButton').addEventListener('click',openSettings);
 $('#progressTab').addEventListener('click',()=>document.querySelector('.progress-heading').scrollIntoView({behavior:'smooth',block:'center'}));
 $('#homeTab').addEventListener('click',()=>window.scrollTo({top:0,behavior:'smooth'}));
-document.querySelectorAll('.difficulty-switch button').forEach(button=>button.addEventListener('click',()=>{
-  const level=button.dataset.level;if(level===state.level)return;
-  showModal(`Switch to ${level.toLowerCase()}?`,'<p>Starting a different difficulty will begin a new puzzle. Your other practice stays in your progress.</p>',[{label:'Keep this puzzle'},{label:'Start new puzzle',primary:true,onClick:()=>startGame(level)}],'CHOOSE YOUR PACE');
-}));
+window.addEventListener('pagehide',saveActiveGame);
 $('#dateLabel').textContent=new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric'}).format(new Date());
 const hour=new Date().getHours();$('#welcomeTitle').innerHTML=hour<12?'Good morning,<br><em>let’s play.</em>':hour<18?'Good afternoon,<br><em>let’s play.</em>':'Good evening,<br><em>let’s play.</em>';
 renderStats();
+applyTheme();

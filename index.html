@@ -14,12 +14,12 @@
   <div class="app-shell">
     <header class="topbar">
       <a class="brand" href="#home" aria-label="Stillmind home"><span class="brand-mark">s</span><span>stillmind</span></a>
-      <button class="icon-button" id="profileButton" aria-label="Your progress"><span class="profile-dot">✿</span></button>
+      <button class="icon-button" id="settingsButton" aria-label="Open settings"><span class="settings-glyph" aria-hidden="true">⚙</span></button>
     </header>
 
     <main>
       <section class="screen home-screen" id="homeScreen">
-        <div class="welcome-row"><div><p class="eyebrow" id="welcomeEyebrow">A LITTLE SPACE FOR YOUR MIND</p><h1 id="welcomeTitle">Good morning,<br><em>let’s play.</em></h1></div><div class="sun-art" aria-hidden="true"><span>✳</span></div></div>
+        <div class="welcome-row"><div><p class="eyebrow" id="welcomeEyebrow">A LITTLE SPACE FOR YOUR MIND</p><h1 id="welcomeTitle">Good morning,<br><em>let’s play.</em></h1></div></div>
         <div class="streak-card"><div class="streak-icon">☼</div><div class="streak-copy"><strong id="streakText">Your first day starts here</strong><span>One gentle puzzle at a time</span></div><div class="streak-count"><b id="streakCount">0</b><small>DAY STREAK</small></div></div>
 
         <div class="section-heading"><div><p class="eyebrow">YOUR DAILY PAUSE</p><h2>Ready when you are</h2></div><span class="date-chip" id="dateLabel"></span></div>
@@ -37,7 +37,6 @@
       <section class="screen game-screen hidden" id="gameScreen">
         <div class="game-nav"><button class="back-button" id="backButton">← <span>Today</span></button><div class="game-title"><span class="eyebrow">YOUR DAILY PAUSE</span><strong>Sudoku</strong></div><button class="icon-button help-button" id="rulesButton" aria-label="How to play">?</button></div>
         <div class="game-heading"><div><p class="eyebrow">TAKE YOUR TIME</p><h1>A little puzzle,<br><em>a little progress.</em></h1></div><div class="timer-pill">◷ <span id="timer">00:00</span></div></div>
-        <div class="difficulty-row"><span class="difficulty-label">CHOOSE YOUR PACE</span><div class="difficulty-switch" role="group" aria-label="Difficulty"><button data-level="Gentle" class="active">Gentle</button><button data-level="Steady">Steady</button><button data-level="Spicy">Spicy</button></div></div>
         <div class="board-wrap"><div class="sudoku-board" id="board" role="grid" aria-label="Sudoku puzzle"></div></div>
         <div class="game-tools"><button class="tool-button" id="notesButton"><span>✎</span> Notes <i id="notesState">off</i></button><button class="tool-button" id="mistakesButton"><span>◎</span> Check mistakes <i id="mistakesState">off</i></button><button class="tool-button hint-tool" id="hintButton"><span>✧</span> Teach me</button></div>
         <div class="number-pad" id="numberPad" aria-label="Number pad"></div>
