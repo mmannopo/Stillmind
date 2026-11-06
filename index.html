@@ -14,13 +14,13 @@
   <div class="app-shell">
     <header class="topbar">
       <a class="brand" href="#home" aria-label="Stillmind home"><span class="brand-mark">s</span><span>stillmind</span></a>
-      <button class="icon-button" id="settingsButton" aria-label="Open settings"><span class="settings-glyph" aria-hidden="true">⚙</span></button>
+      <div class="topbar-actions"><button class="currency-display" id="currencyDisplay" aria-label="View your coin and gem balances"><span><i class="coin-symbol" aria-hidden="true">●</i><b id="coinBalance">0</b></span><span><i class="gem-symbol" aria-hidden="true">◆</i><b id="gemBalance">0</b></span></button><button class="icon-button" id="settingsButton" aria-label="Open settings"><span class="settings-glyph" aria-hidden="true">⚙</span></button></div>
     </header>
 
     <main>
       <section class="screen home-screen" id="homeScreen">
         <div class="welcome-row"><div><p class="eyebrow" id="welcomeEyebrow">A LITTLE SPACE FOR YOUR MIND</p><h1 id="welcomeTitle">Good morning,<br><em>let’s play.</em></h1></div></div>
-        <div class="streak-card"><div class="streak-icon">☼</div><div class="streak-copy"><strong id="streakText">Your first day starts here</strong><span>One gentle puzzle at a time</span></div><div class="streak-count"><b id="streakCount">0</b><small>DAY STREAK</small></div></div>
+        <div class="streak-card"><div class="streak-icon">☼</div><div class="streak-copy"><strong id="streakText">Your first day starts here</strong><span id="activeDaysText">0 total active days</span></div><div class="streak-count"><b id="streakCount">0</b><small>DAY STREAK</small></div></div>
 
         <div class="section-heading"><div><p class="eyebrow">YOUR DAILY PAUSE</p><h2>Ready when you are</h2></div><span class="date-chip" id="dateLabel"></span></div>
         <article class="daily-card">
@@ -28,6 +28,8 @@
           <div class="mini-board" aria-hidden="true"><span>4</span><span></span><span>8</span><span></span><span>1</span><span></span><span>7</span><span></span><span>3</span></div>
           <div class="flower-stamp" aria-hidden="true">✿</div>
         </article>
+
+        <section class="loyalty-card" aria-labelledby="loyaltyTitle"><div class="loyalty-header"><div><p class="eyebrow">A LITTLE EACH DAY</p><h2 id="loyaltyTitle">Monthly loyalty</h2></div><span class="loyalty-month" id="loyaltyMonth"></span></div><div id="monthlyRewardsContent"></div></section>
 
         <div class="section-heading progress-heading"><div><p class="eyebrow">YOUR JOURNEY</p><h2>Growing at your pace</h2></div><button class="text-button" id="resetProgressButton">Start fresh ↗</button></div>
         <div class="progress-grid"><div class="progress-card"><span class="progress-icon lilac">◷</span><b id="puzzlesCount">0</b><span>puzzles finished</span></div><div class="progress-card"><span class="progress-icon peach">✧</span><b id="minutesCount">0</b><span>minutes of focus</span></div><div class="progress-card wide"><div class="skill-title"><span class="progress-icon mint">↗</span><div><b>Skills you’re building</b><span>Every step counts</span></div></div><div class="skill-pills" id="skillPills"><span>Observation</span><span>Digit exclusions</span></div></div></div>
@@ -43,11 +45,22 @@
         <div class="game-footer"><span>Take a breath. You’re doing great.</span><button id="eraseButton">⌫ Erase</button></div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </section>
+
+      <section class="screen collections-screen hidden" id="collectionsScreen" aria-labelledby="collectionsTitle">
+        <div class="collections-heading"><div><p class="eyebrow">YOUR PERSONAL ALBUM</p><h1 id="collectionsTitle">A shelf of little wins.</h1><p>Every sticker marks a moment you showed up for yourself.</p></div></div>
+        <div class="collection-summary" id="collectionSummary"></div>
+        <div class="collection-toolbar"><div class="collection-views" role="tablist" aria-label="Collection views"><button class="collection-view active" data-collection-view="album" role="tab" aria-selected="true">My album</button><button class="collection-view" data-collection-view="history" role="tab" aria-selected="false">Reward history</button></div><button class="shop-button" id="shopButton">Sticker shop <span aria-hidden="true">↗</span></button></div>
+        <div class="collection-categories" id="collectionCategories" aria-label="Collection categories"></div>
+        <div id="collectionContent" aria-live="polite"></div>
+      </section>
     </main>
-    <footer class="bottom-nav"><button class="nav-item active" id="homeTab"><span>⌂</span>Today</button><button class="nav-item" id="progressTab"><span>◷</span>My progress</button></footer>
+    <footer class="bottom-nav"><button class="nav-item active" id="homeTab"><span>⌂</span>Today</button><button class="nav-item" id="collectionsTab"><span>▧</span>Collections</button><button class="nav-item" id="progressTab"><span>◷</span>My progress</button></footer>
   </div>
 
   <dialog id="modal"><div class="modal-content"><button class="modal-close" id="modalClose" aria-label="Close">×</button><div class="modal-sparkle">✿</div><p class="eyebrow" id="modalEyebrow">A GENTLE START</p><h2 id="modalTitle">Sudoku, without the pressure.</h2><div class="modal-body" id="modalBody"></div><div class="modal-actions" id="modalActions"></div></div></dialog>
+  <script src="rewards-config.js"></script>
+  <script src="rewards.js"></script>
+  <script src="collectibles-catalog.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
