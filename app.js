@@ -77,16 +77,28 @@ function cellIndex(r,c){return r*9+c}
 function renderBoard(){
   const board=$('#board');board.innerHTML='';
   for(let r=0;r<9;r++)for(let c=0;c<9;c++){
-    const idx=cellIndex(r,c),v=state.values[r][c],el=document.createElement('button');el.className='cell';el.setAttribute('role','gridcell');el.setAttribute('aria-label',`Row ${r+1}, column ${c+1}${v?`, ${v}`:''}`);el.dataset.index=idx;
+    const idx=cellIndex(r,c),v=state.values[r][c],el=document.createElement('button');el.className='cell';el.setAttribute('role','gridcell');el.setAttribute('aria-label',`Row ${r+1}, column ${c+1}${v?`, ${v}`:''}`);el.setAttribute('aria-selected',String(state.selected===idx));el.dataset.index=idx;
     if(state.puzzle[r][c])el.classList.add('given');
     if(state.selected===idx)el.classList.add('selected');
     if(state.selected!==null){const sr=Math.floor(state.selected/9),sc=state.selected%9,sv=state.values[sr][sc];if((sr===r||sc===c||(Math.floor(sr/3)===Math.floor(r/3)&&Math.floor(sc/3)===Math.floor(c/3)))&&idx!==state.selected)el.classList.add('peer');if(sv&&v===sv&&idx!==state.selected)el.classList.add('same-number')}
     if(v){el.textContent=v;if(state.checkMistakes&&v!==SOLUTION[r][c]&&!state.puzzle[r][c])el.classList.add('mistake')}
     else if(state.notes[idx].size){const note=document.createElement('span');note.className='notes';note.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<span>${state.notes[idx].has(n)?n:''}</span>`).join('');el.appendChild(note)}
-    el.addEventListener('click',()=>{state.selected=idx;renderBoard();saveActiveGame()});board.appendChild(el)
+    el.addEventListener('click',()=>{
+      const selectedValue=state.selected===null?0:state.values[Math.floor(state.selected/9)][state.selected%9];
+      state.selected=v&&selectedValue===v?null:idx;
+      renderBoard();saveActiveGame()
+    });board.appendChild(el)
   }
 }
 function renderPad(){const pad=$('#numberPad');pad.innerHTML='';for(let n=1;n<=9;n++){const b=document.createElement('button');b.textContent=n;b.setAttribute('aria-label',`Enter ${n}`);const count=state.values.flat().filter(v=>v===n).length;b.disabled=count>=9;b.onclick=()=>enterNumber(n);pad.appendChild(b)}}
+document.addEventListener('click',event=>{
+  if(state.selected===null)return;
+  const selectedValue=state.values[Math.floor(state.selected/9)][state.selected%9];
+  if(!selectedValue)return;
+  const clickedCell=event.target.closest('.cell');
+  if(clickedCell&&Number(clickedCell.dataset.index)===state.selected)return;
+  state.selected=null;renderBoard();saveActiveGame();
+});
 function enterNumber(n){
   if(state.selected===null){showToast('Choose a square first.');return}
   const r=Math.floor(state.selected/9),c=state.selected%9;if(state.puzzle[r][c]){showToast('That number is part of the puzzle.');return}
@@ -117,13 +129,59 @@ function teachMe(){
   }
 }
 function showTutorial(){
+  // Fixed teaching example kept entirely separate from the active game state.
+  const tutorialBoard = [
+    [5,3,4,6,7,8,9,1,0],
+    [6,0,2,0,9,0,3,0,0],
+    [0,9,0,0,4,2,5,0,7],
+    [8,5,9,7,6,1,0,2,3],
+    [4,2,6,8,0,3,7,0,0],
+    [7,1,3,9,2,4,0,5,6],
+    [0,6,1,5,3,0,2,8,4],
+    [0,8,7,0,1,9,6,0,0],
+    [3,4,5,2,8,6,1,0,9]
+  ];
   const steps=[
-    {title:'Fill each group once.',body:'<p>Use the digits 1–9 once in every row, every column, and every 3×3 square. A number cannot repeat within one of those groups.</p><div class="hint-callout">Start by looking for a row, column, or square that already contains many digits.</div>',label:'Next'},
-    {title:'Choose a square, then a digit.',body:'<p>Tap an empty square to select it, then tap a digit along the bottom to enter it. Use <b>Erase</b> to clear an entry. Turn on <b>Notes</b> to pencil in possible digits.</p>',label:'Next'},
-    {title:'Ask for a hint whenever you like.',body:'<p><b>Teach me</b> gives a hint based on the current board. The mistake checker can highlight entries that don’t match the solution.</p><p>You can reopen this walkthrough any time with the <b>?</b> button.</p>',label:'Done'}
+    {title:'Introduction to Sudoku',focus:'all',label:'Sudoku is played on a 9×9 grid. Fill each empty cell with a number from 1 through 9. Every row, column, and 3×3 square must contain each number exactly once, with no repeats.'},
+    {title:'Understanding rows',focus:'row',label:'Every row must contain each number from 1 through 9 without repeats. Row 1 already has 5, 3, 4, 6, 7, 8, 9, and 1. The only missing number is 2. Scan across the row to spot it.'},
+    {title:'Understanding columns',focus:'column',label:'Every column must also contain each number from 1 through 9 without repeats. Column 3 contains 4, 2, 9, 6, 3, 1, 7, and 5. The only missing number is 8. Scan from top to bottom to find it.'},
+    {title:'Understanding 3×3 squares',focus:'box',label:'Each 3×3 square must contain every number from 1 through 9 exactly once. In the centre square, rows 4 through 6 and columns 4 through 6, the top row contains 7, 6, and 1; the middle row contains 8 and 3; and the bottom row contains 9, 2, and 4. The missing number is 5. Use this same rule for all nine squares.'},
+    {title:'Need a hand? Try Teach Me',focus:'teach',label:'Need more help while solving? Use Teach Me! It offers hints, tips, and guidance for your current Sudoku. It can help you understand what to look for, identify possible moves, and learn new techniques when you get stuck. This tutorial teaches the basic rules; Teach Me helps you apply them during actual gameplay.'},
+    {title:'You’re ready to play!',focus:'none',label:'Remember to check the row, column, and 3×3 square before placing a number. Use logical elimination, and remember that Teach Me is available whenever you need additional help.'}
   ];
   let step=0;
-  const present=()=>{const current=steps[step];showModal(current.title,current.body,[{label:current.label,primary:true,onClick:()=>{if(step<steps.length-1){step++;present()}}}],`HOW TO PLAY · ${step+1} OF ${steps.length}`)};
+  clearInterval(state.timerInterval);
+  state.timerInterval=null;
+  state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);
+  $('#timer').textContent=`${String(Math.floor(state.elapsed/60)).padStart(2,'0')}:${String(state.elapsed%60).padStart(2,'0')}`;
+  saveActiveGame();
+  const boardMarkup=(focus)=>`<div class="tutorial-board focus-${focus}" role="grid" aria-label="Read-only fixed Sudoku tutorial board">${tutorialBoard.flatMap((row,r)=>row.map((value,c)=>{
+    const classes=['tutorial-cell'];
+    if(focus==='all')classes.push('focus-all');
+    if(focus==='row'&&r===0)classes.push('focus-row-cell');
+    if(focus==='column'&&c===2)classes.push('focus-column-cell');
+    if(focus==='box'&&r>=3&&r<6&&c>=3&&c<6)classes.push('focus-box-cell');
+    const shown=value===0?'':value;
+    const label=value===0?`Row ${r+1}, column ${c+1}, empty`:`Row ${r+1}, column ${c+1}, ${value}`;
+    return `<span class="${classes.join(' ')}" role="gridcell" aria-label="${label}">${shown}</span>`;
+  })).join('')}</div>`;
+  const present=()=>{
+    const item=steps[step],last=step===steps.length-1;
+    const content=`<div class="tutorial-progress" role="progressbar" aria-label="Tutorial progress" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="${step+1}"><span style="width:${((step+1)/steps.length)*100}%"></span></div>${boardMarkup(item.focus)}<p class="tutorial-caption">${item.label}</p>`;
+    const actions=[];
+    if(step>0)actions.push({label:'Back',onClick:()=>{step--;present()}});
+    actions.push({label:last?'Start Playing':'Next',primary:true,onClick:()=>{if(last){$('#hintButton').classList.remove('tutorial-target');return}step++;present()}});
+    $('#hintButton').classList.toggle('tutorial-target',step===4);
+    showModal(item.title,content,actions,`SUDOKU WALKTHROUGH · STEP ${step+1} OF ${steps.length}`);
+  };
+  const modal=$('#modal');
+  const clearTeachHighlight=()=>{if(!modal.open){
+    $('#hintButton').classList.remove('tutorial-target');
+    state.startedAt=Date.now()-state.elapsed*1000;
+    if(!$('#gameScreen').classList.contains('hidden'))state.timerInterval=setInterval(updateTimer,1000);
+    modal.removeEventListener('close',clearTeachHighlight);
+  }};
+  modal.addEventListener('close',clearTeachHighlight);
   present();
 }
 function resetProgress(){showModal('A fresh start, whenever you need one.','<p>Progress is only saved on this device. If you’re moving to a new phone, you can begin again with a short skill check to find a comfortable level.</p><p>This will clear your local streak and puzzle totals.</p>',[{label:'Keep my progress',onClick:()=>{}},{label:'Clear progress',primary:true,onClick:()=>{localStorage.removeItem('stillmindStats');state.stats={finished:0,minutes:0,streak:0,lastDay:'',skills:[]};saveStats();showToast('Your local progress has been cleared.')}}],'YOUR PROGRESS');}
