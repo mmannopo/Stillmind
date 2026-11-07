@@ -53,14 +53,21 @@
         <div class="collection-categories" id="collectionCategories" aria-label="Collection categories"></div>
         <div id="collectionContent" aria-live="polite"></div>
       </section>
+
+      <section class="screen progress-screen hidden" id="progressScreen" aria-labelledby="progressTitle">
+        <div class="progress-dashboard-heading"><div><p class="eyebrow">YOUR PERSONAL DASHBOARD</p><h1 id="progressTitle">Your progress,<br><em>at your pace.</em></h1><p>Notice the patterns in your own practice. This is your journey alone.</p></div><button class="text-button" id="resetProgressDashboard">Reset progress ↗</button></div>
+        <div class="progress-filter-panel"><div><p class="eyebrow">TIME PERIOD</p><div class="progress-ranges" id="progressRanges" role="group" aria-label="Filter progress by time period"><button data-progress-range="7d" aria-pressed="false">7 days</button><button class="active" data-progress-range="30d" aria-pressed="true">30 days</button><button data-progress-range="90d" aria-pressed="false">90 days</button><button data-progress-range="all" aria-pressed="false">All time</button></div></div><details class="custom-range"><summary>Choose dates</summary><div class="custom-range-fields"><label>From <input id="progressDateFrom" type="date"></label><label>To <input id="progressDateTo" type="date"></label><button class="secondary-button" id="applyProgressDates">Apply</button></div></details></div>
+        <div id="progressDashboard" aria-live="polite"></div>
+        <p class="progress-data-note" id="progressDataNote"></p>
+      </section>
     </main>
     <footer class="bottom-nav"><button class="nav-item active" id="homeTab"><span>⌂</span>Today</button><button class="nav-item" id="collectionsTab"><span>▧</span>Collections</button><button class="nav-item" id="progressTab"><span>◷</span>My progress</button></footer>
   </div>
 
   <dialog id="modal"><div class="modal-content"><button class="modal-close" id="modalClose" aria-label="Close">×</button><div class="modal-sparkle">✿</div><p class="eyebrow" id="modalEyebrow">A GENTLE START</p><h2 id="modalTitle">Sudoku, without the pressure.</h2><div class="modal-body" id="modalBody"></div><div class="modal-actions" id="modalActions"></div></div></dialog>
   <script src="rewards-config.js"></script>
-  <script src="rewards.js"></script>
   <script src="collectibles-catalog.js"></script>
+  <script src="rewards.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -29,6 +29,38 @@
     daily.activeDates = Array.isArray(daily.activeDates) ? daily.activeDates : [];
     daily.claimsByDate = daily.claimsByDate && typeof daily.claimsByDate === 'object' ? daily.claimsByDate : {};
     daily.totalActiveDays = daily.activeDates.length;
+    const transactions = Array.isArray(value.transactions) ? value.transactions : [];
+    const ownedItems = Array.isArray(value.ownedItems) ? value.ownedItems.slice() : [];
+    const ownedIds = new Set(ownedItems.map((item) => item?.itemId).filter(Boolean));
+    transactions.forEach((transaction) => {
+      const acquiredIds = new Set([
+        ...(Array.isArray(transaction.itemsAcquired) ? transaction.itemsAcquired : []),
+        ...(transaction.itemId ? [transaction.itemId] : [])
+      ]);
+      acquiredIds.forEach((itemId) => {
+        if (ownedIds.has(itemId)) return;
+        const catalogItem = window.StillmindCollectibleCatalog?.items?.find((item) => item.id === itemId);
+        ownedItems.push({
+          itemId,
+          name: catalogItem?.name || itemId,
+          description: catalogItem?.description || 'Kept from your reward history.',
+          category: catalogItem?.category || 'special',
+          categories: Array.isArray(catalogItem?.categories) ? catalogItem.categories.slice() : [catalogItem?.category || 'special'],
+          collection: catalogItem?.collection || null,
+          collectionId: catalogItem?.collectionId || null,
+          month: catalogItem?.month || null,
+          event: catalogItem?.event || null,
+          rarity: catalogItem?.rarity || 'common',
+          image: catalogItem?.image || null,
+          symbol: catalogItem?.symbol || null,
+          limitedEdition: Boolean(catalogItem?.limitedEdition),
+          acquiredAt: transaction.timestamp || new Date().toISOString(),
+          source: transaction.source || 'reward-history',
+          transactionId: transaction.id || `recovered:${itemId}`
+        });
+        ownedIds.add(itemId);
+      });
+    });
     return {
       ...empty,
       ...value,
@@ -37,14 +69,22 @@
       daily,
       monthly: value.monthly && typeof value.monthly === 'object' ? value.monthly : {},
       completedGameIds: Array.isArray(value.completedGameIds) ? value.completedGameIds : [],
-      ownedItems: Array.isArray(value.ownedItems) ? value.ownedItems : [],
+      ownedItems,
       boxes: Array.isArray(value.boxes) ? value.boxes : [],
-      transactions: Array.isArray(value.transactions) ? value.transactions : []
+      transactions
     };
   }
 
   function loadRecord() {
-    try { return normalizeRecord(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); }
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const parsed = stored ? JSON.parse(stored) : null;
+      const normalized = normalizeRecord(parsed);
+      if (parsed?.schemaVersion === 1 && JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      }
+      return normalized;
+    }
     catch (error) { console.warn('Could not read Stillmind rewards from this device.', error); return makeEmptyRecord(); }
   }
 
@@ -192,7 +232,7 @@
     });
   }
 
-  function recordGameCompletion(gameId, difficulty = 'Beginner', date = new Date()) {
+  function recordGameCompletion(gameId, difficulty = 'Beginner', date = new Date(), durationSeconds = null) {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return { applied: false, reason: 'invalid-date', record: snapshot() };
     if (!gameId) return { applied: false, reason: 'missing-game-id', record: snapshot() };
     if (record.completedGameIds.includes(gameId)) return { applied: false, reason: 'already-rewarded', record: snapshot() };
@@ -211,7 +251,7 @@
       const totalCompletedGames = draft.legacyCompletedGames + draft.completedGameIds.length;
       const milestoneReward = rewards.milestones?.[totalCompletedGames];
       if (milestoneReward) addReward(draft, milestoneReward, 'game-milestone', date, `${id}:milestone:${totalCompletedGames}`);
-      return { gameId, difficulty, firstGameBonus, totalCompletedGames, milestoneReward: milestoneReward || null };
+      return { gameId, difficulty, durationSeconds:durationSeconds!==null&&durationSeconds!==undefined&&Number.isFinite(Number(durationSeconds))?Math.max(0,Math.floor(Number(durationSeconds))):null, firstGameBonus, totalCompletedGames, milestoneReward: milestoneReward || null };
     });
   }
 

@@ -23,26 +23,121 @@ const PUZZLES = {
 function makeTierPuzzle(clues,seed){const board=SOLUTION.map(row=>row.slice());let order=Array.from({length:81},(_,i)=>i),random=seed;for(let i=80;i>0;i--){random=(random*1664525+1013904223)>>>0;const j=random%(i+1);[order[i],order[j]]=[order[j],order[i]]}for(const i of order){if(board.flat().filter(Boolean).length<=clues)break;board[Math.floor(i/9)][i%9]=0}return board}
 PUZZLES.Beginner=makeTierPuzzle(40,11);PUZZLES.Easy=makeTierPuzzle(34,74);PUZZLES.Medium=makeTierPuzzle(30,832);PUZZLES.Hard=makeTierPuzzle(26,641);PUZZLES.Expert=makeTierPuzzle(20,1729);
 const $ = (s) => document.querySelector(s);
+const emptyStats={finished:0,minutes:0,streak:0,lastDay:'',skills:[],sessions:[],legacyFinished:0,legacyMinutes:0};
+function loadStats(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('stillmindStats')||'null');
+    const stored=raw&&typeof raw==='object'?raw:{};
+    const rewards=window.StillmindRewards?.getSnapshot?.()||{};
+    const rewardSessions=(rewards.transactions||[]).filter(item=>item.source==='game-completion'&&item.timestamp).map(item=>({
+      id:item.gameId||String(item.id||'').replace(/^game:/,''),difficulty:item.difficulty||'Beginner',startedAt:item.timestamp,lastPlayedAt:item.timestamp,completedAt:item.timestamp,durationSeconds:Number.isFinite(item.durationSeconds)?item.durationSeconds:null,status:'completed',recoveredFromRewards:true
+    })).filter(item=>item.id&&item.completedAt);
+    const sessionsById=new Map();
+    rewardSessions.forEach(item=>sessionsById.set(item.id,item));
+    (Array.isArray(stored.sessions)?stored.sessions:[]).filter(item=>item&&item.id).forEach(item=>sessionsById.set(item.id,{...sessionsById.get(item.id),...item}));
+    const sessions=[...sessionsById.values()];
+    const completedSessions=sessions.filter(item=>item.status==='completed').length;
+    const rawFinished=Math.max(0,Number(stored.finished)||0),minutes=Math.max(0,Number(stored.minutes)||0);
+    const rewardLegacy=Math.max(0,Number(rewards.legacyCompletedGames)||0);
+    const finished=Math.max(rawFinished,rewardLegacy+(rewards.completedGameIds||[]).length);
+    const rawLegacy=Number.isFinite(stored.legacyFinished)?Math.max(0,stored.legacyFinished):0;
+    const legacyFinished=Math.max(rawLegacy,rewardLegacy,finished-completedSessions,0);
+    const legacyMinutes=Number.isFinite(stored.legacyMinutes)?Math.max(0,stored.legacyMinutes):Array.isArray(stored.sessions)?Math.max(0,minutes):minutes;
+    const normalized={...emptyStats,...stored,finished,minutes,skills:Array.isArray(stored.skills)?stored.skills:[],sessions,legacyFinished,legacyMinutes};
+    if(JSON.stringify(stored)!==JSON.stringify(normalized))localStorage.setItem('stillmindStats',JSON.stringify(normalized));
+    return normalized;
+  }catch(error){console.warn('Could not read saved Stillmind progress.',error);return {...emptyStats,skills:[],sessions:[]}}
+}
 const state = {
   puzzle: [], values: [], notes: Array.from({length:81},()=>new Set()), selected: null, gameId: null,
   level: localStorage.getItem('stillmindDifficulty')||'Beginner', notesMode: false, checkMistakes: false, startedAt: Date.now(),
   elapsed: 0, timerInterval: null, toastTimeout: null,
-  stats: JSON.parse(localStorage.getItem('stillmindStats') || '{"finished":0,"minutes":0,"streak":0,"lastDay":"","skills":[]}')
+  stats: loadStats()
 };
 const collectionUI={view:'album',category:'all'};
+const progressFilter={range:'30d',from:'',to:''};
+const SUDOKU_LEVELS=['Beginner','Easy','Medium','Hard','Expert'];
 const GAME_KEY='stillmindActiveSudoku';
 const THEMES=['green','purple','pink','blue','white','black'];
 function createGameId(){return `sudoku-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`}
 function applyTheme(theme=localStorage.getItem('stillmindTheme')||'green'){const selected=THEMES.includes(theme)?theme:'green';document.documentElement.dataset.theme=selected;localStorage.setItem('stillmindTheme',selected)}
-function saveActiveGame(){if(!state.puzzle.length||!state.gameId)return;state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);const snapshot={gameId:state.gameId,level:state.level,puzzle:state.puzzle,values:state.values,notes:state.notes.map(s=>[...s]),selected:state.selected,elapsed:state.elapsed,savedAt:new Date().toISOString()};try{localStorage.setItem(GAME_KEY,JSON.stringify(snapshot))}catch(error){console.warn('Could not save this Sudoku locally.',error)}}
+function saveActiveGame(){if(!state.puzzle.length||!state.gameId)return;state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);const snapshot={gameId:state.gameId,level:state.level,puzzle:state.puzzle,values:state.values,notes:state.notes.map(s=>[...s]),selected:state.selected,elapsed:state.elapsed,sessionStartedAt:state.sessionStartedAt||new Date(state.startedAt).toISOString(),savedAt:new Date().toISOString()};try{localStorage.setItem(GAME_KEY,JSON.stringify(snapshot))}catch(error){console.warn('Could not save this Sudoku locally.',error)}}
 function getSavedGame(){try{const saved=JSON.parse(localStorage.getItem(GAME_KEY)||'null');if(saved?.puzzle?.length===9&&saved?.values?.length===9&&saved.puzzle.every(row=>row.length===9)&&saved.values.every(row=>row.length===9))return saved}catch(error){console.warn('Could not restore the saved Sudoku.',error)}return null}
 
-function saveStats(){localStorage.setItem('stillmindStats',JSON.stringify(state.stats));renderStats()}
+function saveStats(){localStorage.setItem('stillmindStats',JSON.stringify(state.stats));renderStats();if($('#progressScreen')&&!$('#progressScreen').classList.contains('hidden'))renderProgressDashboard()}
 function renderStats(){
   $('#puzzlesCount').textContent=state.stats.finished;
   $('#minutesCount').textContent=state.stats.minutes;
   const skills=state.stats.skills.length?state.stats.skills:['Observation','Digit exclusions'];
   $('#skillPills').innerHTML=skills.slice(-3).map(x=>`<span>${x}</span>`).join('');
+}
+function trackGameStarted(gameId,difficulty,startedAt=new Date()){
+  if(!gameId)return;
+  const started=startedAt instanceof Date?startedAt:new Date(startedAt);
+  const timestamp=Number.isNaN(started.getTime())?new Date().toISOString():started.toISOString();
+  state.stats.sessions=state.stats.sessions.map(session=>session.id!==gameId&&session.status==='in-progress'?{...session,status:'abandoned',lastPlayedAt:session.lastPlayedAt||session.startedAt}:session);
+  const existing=state.stats.sessions.find(session=>session.id===gameId);
+  if(existing){existing.difficulty=difficulty||existing.difficulty;existing.status='in-progress';existing.lastPlayedAt=new Date().toISOString()}
+  else state.stats.sessions.push({id:gameId,difficulty:difficulty||'Beginner',startedAt:timestamp,lastPlayedAt:new Date().toISOString(),completedAt:null,durationSeconds:null,status:'in-progress'});
+  saveStats();
+}
+function trackGameCompleted(gameId,difficulty,durationSeconds){
+  let session=state.stats.sessions.find(item=>item.id===gameId);
+  if(!session){const started=new Date(Date.now()-Math.max(0,durationSeconds)*1000);session={id:gameId,difficulty:difficulty||'Beginner',startedAt:started.toISOString(),lastPlayedAt:started.toISOString(),completedAt:null,durationSeconds:null,status:'in-progress'};state.stats.sessions.push(session)}
+  session.difficulty=difficulty||session.difficulty||'Beginner';session.status='completed';session.completedAt=new Date().toISOString();session.lastPlayedAt=session.completedAt;session.durationSeconds=Math.max(0,Math.floor(durationSeconds));
+}
+function localDateKey(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`}
+function dateFromKey(key){const [year,month,day]=key.split('-').map(Number);return new Date(year,month-1,day)}
+function getProgressBounds(){
+  const today=new Date(),endExclusive=new Date(today.getFullYear(),today.getMonth(),today.getDate()+1);
+  if(progressFilter.range==='all')return {start:null,endExclusive};
+  let start;
+  if(progressFilter.range==='custom'){
+    if(!progressFilter.from||!progressFilter.to)return null;
+    start=dateFromKey(progressFilter.from);return {start,endExclusive:new Date(dateFromKey(progressFilter.to).getFullYear(),dateFromKey(progressFilter.to).getMonth(),dateFromKey(progressFilter.to).getDate()+1)};
+  }
+  const days=progressFilter.range==='7d'?7:progressFilter.range==='90d'?90:30;
+  start=new Date(today.getFullYear(),today.getMonth(),today.getDate()-days+1);
+  return {start,endExclusive};
+}
+function formatProgressDate(value,options={month:'short',day:'numeric'}){const date=typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)?dateFromKey(value):new Date(value);return Number.isNaN(date.getTime())?'—':new Intl.DateTimeFormat(undefined,options).format(date)}
+function formatDuration(seconds){if(!Number.isFinite(seconds)||seconds<0)return '—';const value=Math.round(seconds);if(value<60)return `${value}s`;if(value<3600)return `${Math.floor(value/60)}m ${String(value%60).padStart(2,'0')}s`;return `${Math.floor(value/3600)}h ${String(Math.floor(value%3600/60)).padStart(2,'0')}m`}
+function inProgressRange(value,bounds){if(!value)return false;const time=new Date(value).getTime();return Number.isFinite(time)&&(!bounds.start||time>=bounds.start.getTime())&&time<bounds.endExclusive.getTime()}
+function createTrendBuckets(completed,bounds){
+  if(progressFilter.range==='all'){
+    if(!completed.length)return [];
+    const first=completed.reduce((earliest,session)=>Math.min(earliest,new Date(session.completedAt).getTime()),Infinity);
+    let cursor=new Date(first);cursor=new Date(cursor.getFullYear(),cursor.getMonth(),1);
+    const buckets=[];while(cursor<bounds.endExclusive){const next=new Date(cursor.getFullYear(),cursor.getMonth()+1,1),from=cursor.getTime(),to=next.getTime();buckets.push({label:new Intl.DateTimeFormat(undefined,{month:'short',year:'2-digit'}).format(cursor),count:completed.filter(session=>{const at=new Date(session.completedAt).getTime();return at>=from&&at<to}).length});cursor=next}
+    return buckets;
+  }
+  const days=Math.max(1,Math.ceil((bounds.endExclusive-bounds.start)/86400000)),count=days<=14?days:6,span=(bounds.endExclusive-bounds.start)/count;
+  return Array.from({length:count},(_,index)=>{
+    const from=bounds.start.getTime()+span*index,to=index===count-1?bounds.endExclusive.getTime():bounds.start.getTime()+span*(index+1),label=formatProgressDate(from,days<=7?{weekday:'short'}:{month:'short',day:'numeric'});
+    return {label,count:completed.filter(session=>{const at=new Date(session.completedAt).getTime();return at>=from&&at<to}).length};
+  });
+}
+function renderProgressDashboard(){
+  const bounds=getProgressBounds();if(!bounds)return;
+  const allTime=progressFilter.range==='all',sessions=state.stats.sessions.filter(session=>inProgressRange(session.startedAt,bounds)),startedAndCompleted=sessions.filter(session=>session.status==='completed'&&session.completedAt),completed=state.stats.sessions.filter(session=>session.status==='completed'&&inProgressRange(session.completedAt,bounds)),legacy=allTime?Math.max(0,state.stats.legacyFinished||0):0,playedCount=sessions.length+legacy,completedCount=completed.length+legacy;
+  const durationSeconds=completed.reduce((total,session)=>total+(Number(session.durationSeconds)||0),0)+(allTime?(Number(state.stats.legacyMinutes)||0)*60:0),average=completedCount?durationSeconds/completedCount:null;
+  const byLevel=Object.fromEntries(SUDOKU_LEVELS.map(level=>[level,sessions.filter(session=>session.difficulty===level).length]));
+  const bestCount=Math.max(0,...Object.values(byLevel)),favorites=bestCount?SUDOKU_LEVELS.filter(level=>byLevel[level]===bestCount):[],favoriteLabel=favorites.length?favorites.join(' & '):'Not enough data';
+  const rangeLabel=progressFilter.range==='all'?'All time':progressFilter.range==='custom'?`${formatProgressDate(progressFilter.from)} – ${formatProgressDate(progressFilter.to)}`:progressFilter.range==='7d'?'Last 7 days':progressFilter.range==='90d'?'Last 90 days':'Last 30 days';
+  document.querySelectorAll('[data-progress-range]').forEach(button=>{const active=button.dataset.progressRange===progressFilter.range;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active))});
+  const fromInput=$('#progressDateFrom'),toInput=$('#progressDateTo'),today=new Date();if(!fromInput.value)fromInput.value=localDateKey(new Date(today.getFullYear(),today.getMonth(),today.getDate()-29));if(!toInput.value)toInput.value=localDateKey(today);
+  const completionRate=playedCount?Math.round((startedAndCompleted.length+legacy)/playedCount*100):0;
+  const kpi=(icon,title,value,detail)=>`<article class="analytics-kpi"><span class="analytics-kpi-icon" aria-hidden="true">${icon}</span><span class="analytics-kpi-label">${escapeHTML(title)}</span><b>${escapeHTML(value)}</b><small>${escapeHTML(detail)}</small></article>`;
+  const trend=createTrendBuckets(completed,bounds),trendMax=Math.max(1,...trend.map(bucket=>bucket.count));
+  const trendMarkup=trend.length&&completed.length?`<div class="trend-chart" role="img" aria-label="${trend.map(bucket=>`${bucket.label}: ${bucket.count} completed`).join('; ')}">${trend.map(bucket=>`<div class="trend-column"><span class="trend-count">${bucket.count||''}</span><div class="trend-track"><i style="height:${bucket.count?Math.max(7,bucket.count/trendMax*100):2}%"></i></div><small>${bucket.label}</small></div>`).join('')}</div>`:`<div class="chart-empty"><span>◷</span><b>Your activity will appear here</b><p>Complete a puzzle and the trend will start to take shape.</p></div>`;
+  const levelMax=Math.max(1,...Object.values(byLevel));
+  const levelMarkup=SUDOKU_LEVELS.map(level=>`<div class="level-bar-row"><span>${level}</span><div class="level-bar-track" role="progressbar" aria-label="${level} puzzles played" aria-valuemin="0" aria-valuemax="${levelMax}" aria-valuenow="${byLevel[level]}"><i style="width:${byLevel[level]/levelMax*100}%"></i></div><b>${byLevel[level]}</b></div>`).join('');
+  const timeByLevel=Object.fromEntries(SUDOKU_LEVELS.map(level=>{const rows=completed.filter(session=>session.difficulty===level&&Number.isFinite(Number(session.durationSeconds)));return [level,rows.length?rows.reduce((sum,session)=>sum+Number(session.durationSeconds),0)/rows.length:null]}));
+  const maxTime=Math.max(1,...Object.values(timeByLevel).filter(Number.isFinite));
+  const timeMarkup=SUDOKU_LEVELS.map(level=>`<div class="level-bar-row average-row"><span>${level}</span><div class="level-bar-track" role="progressbar" aria-label="Average solve time for ${level}" aria-valuemin="0" aria-valuemax="${maxTime}" aria-valuenow="${timeByLevel[level]||0}"><i style="width:${timeByLevel[level]?Math.max(4,timeByLevel[level]/maxTime*100):0}%"></i></div><b>${formatDuration(timeByLevel[level])}</b></div>`).join('');
+  const pathMarkup=SUDOKU_LEVELS.map((level,index)=>`<div class="difficulty-step ${byLevel[level]?'played':''} ${favorites.includes(level)?'favorite':''}"><span class="difficulty-step-index">${index+1}</span><b>${level}</b><small>${byLevel[level]} ${byLevel[level]===1?'game':'games'}</small></div>`).join('');
+  $('#progressDashboard').innerHTML=`<div class="progress-period-label">${escapeHTML(rangeLabel)}</div><div class="analytics-kpis">${kpi('▦','Games played',playedCount,`${sessions.filter(session=>session.status!=='completed').length} unfinished in this period`)}${kpi('✓','Puzzles completed',completedCount,`${completionRate}% of games started in this period were completed`)}${kpi('◷','Average solve time',average===null?'—':formatDuration(average),'Completed puzzles only')}${kpi('✦','Favourite level',favoriteLabel,bestCount?`${bestCount} games started at this level`:'Play a few games to find your rhythm')}</div><div class="progress-chart-grid"><article class="progress-chart-card trend-card"><div class="chart-card-heading"><div><p class="eyebrow">COMPLETIONS</p><h2>Puzzle activity</h2></div><span>${completedCount} total</span></div><p class="chart-description">Completed puzzles over your selected time period.</p>${trendMarkup}</article><article class="progress-chart-card"><div class="chart-card-heading"><div><p class="eyebrow">PLAY MIX</p><h2>Difficulty levels</h2></div><span>Games started</span></div><p class="chart-description">See which levels you return to most.</p><div class="level-bars">${levelMarkup}</div></article><article class="progress-chart-card"><div class="chart-card-heading"><div><p class="eyebrow">SOLVING PACE</p><h2>Average solve time</h2></div><span>Finished only</span></div><p class="chart-description">Your average time at each difficulty.</p><div class="level-bars">${timeMarkup}</div></article><article class="progress-chart-card difficulty-journey-card"><div class="chart-card-heading"><div><p class="eyebrow">YOUR PATH</p><h2>Difficulty journey</h2></div><span>${escapeHTML(favoriteLabel)}</span></div><p class="chart-description">A view of the levels you’ve explored so far.</p><div class="difficulty-journey">${pathMarkup}</div></article></div>`;
+  $('#progressDataNote').textContent=state.stats.legacyFinished?`Your earlier ${state.stats.legacyFinished} completed ${state.stats.legacyFinished===1?'puzzle':'puzzles'} are included in all-time totals. Dates, difficulty, and solve times are recorded from now on. Play mix uses start dates; completions and solve times use finish dates. Progress is stored on this device.`:'This dashboard records game starts and completion times on this device. In-progress and abandoned games count as played; average solve time uses completed games. Play mix uses start dates; completions and solve times use finish dates.';
 }
 function formatCurrencyChanges(changes={}){
   const earned=Object.entries(changes).filter(([,amount])=>amount>0).map(([currency,amount])=>`${amount} ${amount===1?currency.slice(0,-1):currency}`);
@@ -231,7 +326,8 @@ function renderCollectionScreen(rewards=window.StillmindRewards.getSnapshot()){
   document.querySelectorAll('[data-buy-item],[data-collect-free]').forEach(button=>button.onclick=()=>handleCollectionAction(button));
   document.querySelectorAll('[data-open-box]').forEach(button=>button.onclick=()=>showBoxOpening(button.dataset.openBox));
 }
-function showCollections(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#collectionsScreen').classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='collectionsTab'));renderCollectionScreen()}
+function showCollections(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('#collectionsScreen').classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='collectionsTab'));renderCollectionScreen()}
+function showProgress(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='progressTab'));renderProgressDashboard();requestAnimationFrame(()=>{if(!$('#progressScreen').classList.contains('hidden'))renderProgressDashboard()})}
 function showToast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(state.toastTimeout);state.toastTimeout=setTimeout(()=>el.classList.remove('show'),2600)}
 function showModal(title,body,actions=[],eyebrow='A GENTLE START'){
   $('#modalTitle').textContent=title;$('#modalBody').innerHTML=body;$('#modalEyebrow').textContent=eyebrow;
@@ -239,19 +335,19 @@ function showModal(title,body,actions=[],eyebrow='A GENTLE START'){
   actions.forEach(({label,primary,onClick})=>{const b=document.createElement('button');b.className=primary?'primary-button':'secondary-button';b.textContent=label;b.onclick=()=>{$('#modal').close();if(onClick)onClick()};wrap.appendChild(b)});
   $('#modal').showModal();
 }
-function showHome(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.remove('hidden');$('#gameScreen').classList.add('hidden');$('#collectionsScreen').classList.add('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(b=>b.classList.toggle('active',b.id==='homeTab'));renderStats();renderRewardsDashboard()}
+function showHome(){if(!$('#gameScreen').classList.contains('hidden'))saveActiveGame();clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.remove('hidden');$('#gameScreen').classList.add('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(b=>b.classList.toggle('active',b.id==='homeTab'));renderStats();renderRewardsDashboard()}
 function startGame(level=state.level){
   if(!PUZZLES[level])level='Beginner';
   state.level=level;state.puzzle=PUZZLES[level].map(row=>row.slice());state.values=PUZZLES[level].map(row=>row.slice());
   localStorage.setItem('stillmindDifficulty',level);
-  state.notes=Array.from({length:81},()=>new Set());state.selected=null;state.gameId=createGameId();state.elapsed=0;state.startedAt=Date.now();
-  $('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');
+  state.notes=Array.from({length:81},()=>new Set());state.selected=null;state.gameId=createGameId();state.elapsed=0;state.startedAt=Date.now();state.sessionStartedAt=new Date(state.startedAt).toISOString();trackGameStarted(state.gameId,level,state.startedAt);
+  $('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');
   document.querySelectorAll('.difficulty-switch button').forEach(b=>b.classList.toggle('active',b.dataset.level===level));
   $('#notesState').textContent=state.notesMode?'on':'off';$('#mistakesState').textContent=state.checkMistakes?'on':'off';
   $('#notesButton').classList.toggle('on',state.notesMode);$('#mistakesButton').classList.toggle('on',state.checkMistakes);
   renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame();
 }
-function resumeGame(saved=getSavedGame()){if(!saved)return startGame(state.level);state.level=saved.level||'Beginner';state.puzzle=saved.puzzle;state.values=saved.values;state.notes=(saved.notes||Array.from({length:81},()=>[])).map(s=>new Set(s));state.selected=saved.selected??null;state.gameId=saved.gameId||createGameId();state.elapsed=saved.elapsed||0;state.startedAt=Date.now()-state.elapsed*1000;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame()}
+function resumeGame(saved=getSavedGame()){if(!saved)return startGame(state.level);state.level=saved.level||'Beginner';state.puzzle=saved.puzzle;state.values=saved.values;state.notes=(saved.notes||Array.from({length:81},()=>[])).map(s=>new Set(s));state.selected=saved.selected??null;state.gameId=saved.gameId||createGameId();state.elapsed=saved.elapsed||0;state.startedAt=Date.now()-state.elapsed*1000;state.sessionStartedAt=saved.sessionStartedAt||new Date(state.startedAt).toISOString();trackGameStarted(state.gameId,state.level,state.sessionStartedAt);$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame()}
 function updateTimer(){state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);$('#timer').textContent=`${String(Math.floor(state.elapsed/60)).padStart(2,'0')}:${String(state.elapsed%60).padStart(2,'0')}`;if(state.elapsed%5===0)saveActiveGame()}
 function getCandidates(r,c){
   if(state.values[r][c])return [];
@@ -296,11 +392,11 @@ function finishGame(){
   const wrong=state.values.some((row,r)=>row.some((v,c)=>v!==SOLUTION[r][c]));
   if(wrong){showToast('A few numbers need another look. Turn on mistake check or ask for a hint.');return}
   const completedGameId=state.gameId||createGameId();
-  const rewardResult=window.StillmindRewards.recordGameCompletion(completedGameId,state.level);
+  const rewardResult=window.StillmindRewards.recordGameCompletion(completedGameId,state.level,new Date(),state.elapsed);
   const transaction=rewardResult.applied?rewardResult.record?.transactions.find(item=>item.id===`game:${completedGameId}`):null;
   const rewardSummary=transaction?formatRewardSummary(transaction):rewardResult.reason==='storage-error'?'Your puzzle is complete, but the rewards could not be saved on this device.':'Your game rewards were already recorded.';
-  clearInterval(state.timerInterval);state.timerInterval=null;state.gameId=null;localStorage.removeItem(GAME_KEY);state.stats.finished++;state.stats.minutes+=Math.max(1,Math.round(state.elapsed/60));
-  saveStats();showModal('You did it, at your pace.','<p>Beautiful work. You completed a Sudoku and gave your mind a little room to grow.</p><div class="reward-earned"><span class="reward-earned-icon" aria-hidden="true">✧</span><div><b>Game reward</b><p>'+rewardSummary+'</p></div></div><div class="hint-callout">Time spent: '+$('#timer').textContent+'. Your progress is saved on this device.</div>',[{label:'Back to today',primary:true,onClick:showHome}], 'A MOMENT TO CELEBRATE');
+  trackGameCompleted(completedGameId,state.level,state.elapsed);clearInterval(state.timerInterval);state.timerInterval=null;state.gameId=null;localStorage.removeItem(GAME_KEY);state.stats.finished++;state.stats.minutes+=Math.max(1,Math.round(state.elapsed/60));
+  saveStats();renderProgressDashboard();showModal('You did it, at your pace.','<p>Beautiful work. You completed a Sudoku and gave your mind a little room to grow.</p><div class="reward-earned"><span class="reward-earned-icon" aria-hidden="true">✧</span><div><b>Game reward</b><p>'+rewardSummary+'</p></div></div><div class="hint-callout">Time spent: '+$('#timer').textContent+'. Your progress is saved on this device.</div>',[{label:'Back to today',primary:true,onClick:showHome}], 'A MOMENT TO CELEBRATE');
 }
 function basicHint(){
   // Point to an actual naked single if one exists, then explain the row/column/box exclusions.
@@ -374,7 +470,7 @@ function showTutorial(){
   modal.addEventListener('close',clearTeachHighlight);
   present();
 }
-function resetProgress(){showModal('A fresh start, whenever you need one.','<p>Progress is only saved on this device. If you’re moving to a new phone, you can begin again with a short skill check to find a comfortable level.</p><p>This clears your Sudoku totals. Your daily reward streak, currency, and collection history stay saved.</p>',[{label:'Keep my progress',onClick:()=>{}},{label:'Clear Sudoku totals',primary:true,onClick:()=>{localStorage.removeItem('stillmindStats');state.stats={finished:0,minutes:0,streak:0,lastDay:'',skills:[]};saveStats();showToast('Your Sudoku totals have been cleared.')}}],'YOUR PROGRESS');}
+function resetProgress(){showModal('A fresh start, whenever you need one.','<p>Progress is only saved on this device. If you’re moving to a new phone, you can begin again with a short skill check to find a comfortable level.</p><p>This clears your Sudoku totals and progress dashboard history. Your daily reward streak, currency, and collection history stay saved.</p>',[{label:'Keep my progress',onClick:()=>{}},{label:'Clear Sudoku totals',primary:true,onClick:()=>{localStorage.removeItem('stillmindStats');state.stats={...emptyStats,skills:[],sessions:[]};saveStats();showToast('Your Sudoku progress has been cleared.')}}],'YOUR PROGRESS');}
 function showRules(){showModal('A few rules, then you’re off.','<p>Fill each row, column, and 3×3 box with digits 1–9. A digit can only appear once in each.</p><p><b>Notes</b> help you keep track of candidates. <b>Check mistakes</b> highlights entries that don’t match this puzzle’s solution. <b>Teach me</b> explains a real deduction when one is available.</p>',[{label:'Got it',primary:true}],'SUDOKU BASICS')}
 
 function chooseDifficulty(){const levels=['Beginner','Easy','Medium','Hard','Expert'];const saved=getSavedGame();const selector=`${saved?'<p class="saved-game-note">Your unfinished '+saved.level+' puzzle is saved on this device.</p>':'<p>Choose your difficulty before the puzzle begins.</p>'}<div class="start-levels">${levels.map(level=>`<button class="level-choice ${state.level===level?'selected':''}" data-start-level="${level}"><b>${level}</b><small>${({Beginner:'36–45 clues',Easy:'32–36 clues',Medium:'28–32 clues',Hard:'24–28 clues',Expert:'17–24 clues'})[level]}</small></button>`).join('')}</div>`;
@@ -395,8 +491,12 @@ $('#settingsButton').addEventListener('click',openSettings);
 $('#currencyDisplay').addEventListener('click',()=>showModal('Your little reward wallet.','<p><b>Coins</b> are the everyday reward currency. Earn them through daily visits and completed Sudoku games, then use them for standard collectibles.</p><p><b>Gems</b> are less common. Earn them through daily and milestone rewards, then save them for special collectibles.</p><p>Your balances are saved only in this browser on this device. There are no real-money purchases.</p>',[{label:'Got it',primary:true}],'COINS & GEMS'));
 $('#collectionsTab').addEventListener('click',showCollections);
 $('#shopButton').addEventListener('click',()=>{collectionUI.view=collectionUI.view==='shop'?'album':'shop';renderCollectionScreen()});
-$('#progressTab').addEventListener('click',()=>{showHome();document.querySelector('.progress-heading').scrollIntoView({behavior:'smooth',block:'center'})});
+$('#progressTab').addEventListener('click',showProgress);
+$('#progressRanges').addEventListener('click',event=>{const button=event.target.closest('[data-progress-range]');if(!button||!event.currentTarget.contains(button))return;progressFilter.range=button.dataset.progressRange;renderProgressDashboard()});
+$('#applyProgressDates').addEventListener('click',()=>{const from=$('#progressDateFrom').value,to=$('#progressDateTo').value;if(!from||!to||from>to){showToast('Choose a valid start and end date.');return}if(to>localDateKey(new Date())){showToast('The end date must be today or earlier.');return}progressFilter.from=from;progressFilter.to=to;progressFilter.range='custom';renderProgressDashboard()});
 $('#homeTab').addEventListener('click',()=>{showHome();window.scrollTo({top:0,behavior:'smooth'})});
+$('.brand').addEventListener('click',event=>{event.preventDefault();showHome();window.scrollTo({top:0,behavior:'smooth'})});
+$('#resetProgressDashboard').addEventListener('click',resetProgress);
 window.addEventListener('pagehide',saveActiveGame);
 $('#dateLabel').textContent=new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric'}).format(new Date());
 const hour=new Date().getHours();$('#welcomeTitle').innerHTML=hour<12?'Good morning,<br><em>let’s play.</em>':hour<18?'Good afternoon,<br><em>let’s play.</em>':'Good evening,<br><em>let’s play.</em>';
