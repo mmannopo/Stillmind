@@ -118,7 +118,22 @@ function createTrendBuckets(completed,bounds){
   });
 }
 function renderProgressDashboard(){
-  const bounds=getProgressBounds();if(!bounds)return;
+  const dashboard=$('#progressDashboard');
+  if(!dashboard)return;
+  try{
+    renderProgressDashboardContent();
+  }catch(error){
+    console.error('Could not render the Stillmind progress dashboard.',error);
+    dashboard.innerHTML='<div class="progress-render-error" role="alert"><b>Your progress could not be displayed.</b><p>Please try again. Your saved game history has not been changed.</p><button class="secondary-button" type="button" id="retryProgressRender">Try again</button></div>';
+    $('#retryProgressRender').addEventListener('click',renderProgressDashboard,{once:true});
+  }
+}
+function renderProgressDashboardContent(){
+  const bounds=getProgressBounds();
+  if(!bounds){
+    $('#progressDashboard').innerHTML='<div class="progress-render-error" role="status"><b>Choose a valid date range to view your progress.</b><p>Select one of the preset periods, or choose both dates in the custom range.</p></div>';
+    return;
+  }
   const allTime=progressFilter.range==='all',sessions=state.stats.sessions.filter(session=>inProgressRange(session.startedAt,bounds)),startedAndCompleted=sessions.filter(session=>session.status==='completed'&&session.completedAt),completed=state.stats.sessions.filter(session=>session.status==='completed'&&inProgressRange(session.completedAt,bounds)),legacy=allTime?Math.max(0,state.stats.legacyFinished||0):0,playedCount=sessions.length+legacy,completedCount=completed.length+legacy;
   const durationSeconds=completed.reduce((total,session)=>total+(Number(session.durationSeconds)||0),0)+(allTime?(Number(state.stats.legacyMinutes)||0)*60:0),average=completedCount?durationSeconds/completedCount:null;
   const byLevel=Object.fromEntries(SUDOKU_LEVELS.map(level=>[level,sessions.filter(session=>session.difficulty===level).length]));
@@ -281,6 +296,7 @@ function handleCollectionAction(button){
     else showModal('This collectible could not be added.','<p>Your balance and collection were left unchanged. Please try again.</p>',[{label:'Close',primary:true}],'SHOP');
     return;
   }
+  collectionUI.view='album';collectionUI.category='all';renderCollectionScreen(result.record);
   showModal('A new keepsake for your shelf.',`<div class="reward-earned"><span class="reward-earned-icon" aria-hidden="true">${escapeHTML(item.symbol||'✦')}</span><div><b>${escapeHTML(item.name)}</b><p>Added to your personal collection.</p></div></div>`,[{label:'Lovely',primary:true}],'NEW COLLECTIBLE');
 }
 function showBoxOpening(boxId){
@@ -304,7 +320,8 @@ function renderCollectionScreen(rewards=window.StillmindRewards.getSnapshot()){
   const completion=total?Math.min(100,Math.round(ownedCount/total*100)):0;
   $('#collectionSummary').innerHTML=`<div class="collection-stat"><span>Collected</span><b>${ownedCount}</b><small>unique keepsakes</small></div><div class="collection-stat collection-completion"><span>Album complete</span><b>${completion}%</b><div class="collection-progress" role="progressbar" aria-label="Collection completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${completion}"><span style="width:${completion}%"></span></div><small>${Math.min(ownedCount,total)} of ${total} designs</small></div><div class="collection-stat"><span>Unopened boxes</span><b>${rewards.boxes.filter(box=>!box.openedAt).length}</b><small>waiting to surprise you</small></div>`;
   document.querySelectorAll('[data-collection-view]').forEach(button=>{const active=button.dataset.collectionView===collectionUI.view;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active))});
-  $('#shopButton').textContent=collectionUI.view==='shop'?'Back to my album':'Sticker shop ↗';
+  $('#shopButton').textContent=collectionUI.view==='shop'?'← Back to my album':'Sticker shop ↗';
+  $('#shopButton').setAttribute('aria-label',collectionUI.view==='shop'?'Return to your personal album':'Open the sticker shop');
   $('#shopButton').classList.toggle('active',collectionUI.view==='shop');
   $('#shopButton').setAttribute('aria-pressed',String(collectionUI.view==='shop'));
   const categoryWrap=$('#collectionCategories');
@@ -316,7 +333,7 @@ function renderCollectionScreen(rewards=window.StillmindRewards.getSnapshot()){
     const shopItems=items.filter(item=>['purchase','free'].includes(item.acquisition)&&isCurrentlyAvailable(item)&&collectionCategoryMatches(item,collectionUI.category));
     content=shopItems.length?`<div class="collection-intro"><h2>Choose a little keepsake</h2><p>Use coins or gems you’ve earned in Stillmind. No real-money purchases.</p></div><div class="collectible-grid">${shopItems.map(item=>collectionCard(item,'shop',rewards.currencies)).join('')}</div>`:'<div class="collection-empty"><span>✧</span><h3>Nothing in this shop shelf yet</h3><p>Try another category or check back when new designs arrive.</p></div>';
   }else{
-    const visible=items.filter(item=>collectionCategoryMatches(item,collectionUI.category));
+    const visible=items.filter(item=>item.owned&&collectionCategoryMatches(item,collectionUI.category));
     const boxes=collectionUI.category==='all'||collectionUI.category==='boxRewards'?rewards.boxes.filter(box=>!box.openedAt):[];
     content=`<div class="collection-intro"><h2>${escapeHTML(catalog.categories.find(category=>category.id===collectionUI.category)?.label||'All Items')}</h2><p>Keep the little things you’ve earned, all in one place.</p></div>${visible.length?renderCollectionGallery(visible,collectionUI.category):'<div class="collection-empty"><span>✧</span><h3>No designs in this shelf yet</h3><p>Choose another category or visit the Sticker Shop to find a new favorite.</p></div>'}${boxes.length?`<section class="box-shelf"><div><p class="eyebrow">A LITTLE MYSTERY</p><h2>Surprise boxes</h2><p>Open a box to reveal coins, gems, or a collectible for your album.</p></div><div class="box-shelf-items">${boxes.map(box=>`<article class="unopened-box"><span aria-hidden="true">▣</span><div><b>${escapeHTML(box.boxType==='game-milestone'?'Milestone box':'Surprise box')}</b><small>Earned ${escapeHTML(formatCollectionDate(box.acquiredAt))}</small></div><button class="open-box-button" data-open-box="${escapeHTML(box.id)}" aria-label="Open ${escapeHTML(box.boxType==='game-milestone'?'milestone':'surprise')} box">Open</button></article>`).join('')}</div></section>`:''}`;
   }
@@ -326,8 +343,8 @@ function renderCollectionScreen(rewards=window.StillmindRewards.getSnapshot()){
   document.querySelectorAll('[data-buy-item],[data-collect-free]').forEach(button=>button.onclick=()=>handleCollectionAction(button));
   document.querySelectorAll('[data-open-box]').forEach(button=>button.onclick=()=>showBoxOpening(button.dataset.openBox));
 }
-function showCollections(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('#collectionsScreen').classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='collectionsTab'));renderCollectionScreen()}
-function showProgress(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='progressTab'));renderProgressDashboard();requestAnimationFrame(()=>{if(!$('#progressScreen').classList.contains('hidden'))renderProgressDashboard()})}
+function showCollections(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('#collectionsScreen').classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='collectionsTab'));collectionUI.view='album';collectionUI.category='all';renderCollectionScreen(window.StillmindRewards.getSnapshot());requestAnimationFrame(()=>{if(!$('#collectionsScreen').classList.contains('hidden'))renderCollectionScreen(window.StillmindRewards.getSnapshot())})}
+function showProgress(){clearInterval(state.timerInterval);state.timerInterval=null;$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.add('hidden');$('#collectionsScreen').classList.add('hidden');const screen=$('#progressScreen');screen.classList.remove('hidden');$('.bottom-nav').classList.remove('hidden');$('.nav-item').forEach(button=>button.classList.toggle('active',button.id==='progressTab'));renderProgressDashboard();requestAnimationFrame(()=>{if(!screen.classList.contains('hidden')){void screen.offsetHeight;requestAnimationFrame(()=>{if(!screen.classList.contains('hidden'))renderProgressDashboard()})}})}
 function showToast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(state.toastTimeout);state.toastTimeout=setTimeout(()=>el.classList.remove('show'),2600)}
 function showModal(title,body,actions=[],eyebrow='A GENTLE START'){
   $('#modalTitle').textContent=title;$('#modalBody').innerHTML=body;$('#modalEyebrow').textContent=eyebrow;
@@ -490,7 +507,7 @@ $('#resetProgressButton').addEventListener('click',resetProgress);
 $('#settingsButton').addEventListener('click',openSettings);
 $('#currencyDisplay').addEventListener('click',()=>showModal('Your little reward wallet.','<p><b>Coins</b> are the everyday reward currency. Earn them through daily visits and completed Sudoku games, then use them for standard collectibles.</p><p><b>Gems</b> are less common. Earn them through daily and milestone rewards, then save them for special collectibles.</p><p>Your balances are saved only in this browser on this device. There are no real-money purchases.</p>',[{label:'Got it',primary:true}],'COINS & GEMS'));
 $('#collectionsTab').addEventListener('click',showCollections);
-$('#shopButton').addEventListener('click',()=>{collectionUI.view=collectionUI.view==='shop'?'album':'shop';renderCollectionScreen()});
+$('#shopButton').addEventListener('click',()=>{collectionUI.view=collectionUI.view==='shop'?'album':'shop';collectionUI.category='all';renderCollectionScreen(window.StillmindRewards.getSnapshot())});
 $('#progressTab').addEventListener('click',showProgress);
 $('#progressRanges').addEventListener('click',event=>{const button=event.target.closest('[data-progress-range]');if(!button||!event.currentTarget.contains(button))return;progressFilter.range=button.dataset.progressRange;renderProgressDashboard()});
 $('#applyProgressDates').addEventListener('click',()=>{const from=$('#progressDateFrom').value,to=$('#progressDateTo').value;if(!from||!to||from>to){showToast('Choose a valid start and end date.');return}if(to>localDateKey(new Date())){showToast('The end date must be today or earlier.');return}progressFilter.from=from;progressFilter.to=to;progressFilter.range='custom';renderProgressDashboard()});
