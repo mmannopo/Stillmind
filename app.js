@@ -50,18 +50,19 @@ function loadStats(){
 }
 const state = {
   puzzle: [], values: [], notes: Array.from({length:81},()=>new Set()), selected: null, gameId: null,
-  level: localStorage.getItem('stillmindDifficulty')||'Beginner', notesMode: false, checkMistakes: false, startedAt: Date.now(),
+  level: localStorage.getItem('stillmindDifficulty')||'Beginner', notesMode: false, checkMistakes: false, magicPen: false, magicNumber: null, startedAt: Date.now(),
   elapsed: 0, timerInterval: null, toastTimeout: null,
+  autoCompletePrompted: false, autoCompleting: false, autoRevealIndex: null, completionInProgress: false,
   stats: loadStats()
 };
 const collectionUI={view:'album',category:'all'};
-const progressFilter={range:'30d',from:'',to:''};
+const progressFilter={range:'30d',from:'',to:'',bestTimeDifficulty:'Beginner'};
 const SUDOKU_LEVELS=['Beginner','Easy','Medium','Hard','Expert'];
 const GAME_KEY='stillmindActiveSudoku';
 const THEMES=['green','purple','pink','blue','white','black'];
 function createGameId(){return `sudoku-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`}
 function applyTheme(theme=localStorage.getItem('stillmindTheme')||'green'){const selected=THEMES.includes(theme)?theme:'green';document.documentElement.dataset.theme=selected;localStorage.setItem('stillmindTheme',selected)}
-function saveActiveGame(){if(!state.puzzle.length||!state.gameId)return;state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);const snapshot={gameId:state.gameId,level:state.level,puzzle:state.puzzle,values:state.values,notes:state.notes.map(s=>[...s]),selected:state.selected,elapsed:state.elapsed,sessionStartedAt:state.sessionStartedAt||new Date(state.startedAt).toISOString(),savedAt:new Date().toISOString()};try{localStorage.setItem(GAME_KEY,JSON.stringify(snapshot))}catch(error){console.warn('Could not save this Sudoku locally.',error)}}
+function saveActiveGame(){if(!state.puzzle.length||!state.gameId)return;state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);const snapshot={gameId:state.gameId,level:state.level,puzzle:state.puzzle,values:state.values,notes:state.notes.map(s=>[...s]),selected:state.selected,elapsed:state.elapsed,autoCompletePrompted:state.autoCompletePrompted,sessionStartedAt:state.sessionStartedAt||new Date(state.startedAt).toISOString(),savedAt:new Date().toISOString()};try{localStorage.setItem(GAME_KEY,JSON.stringify(snapshot))}catch(error){console.warn('Could not save this Sudoku locally.',error)}}
 function getSavedGame(){try{const saved=JSON.parse(localStorage.getItem(GAME_KEY)||'null');if(saved?.puzzle?.length===9&&saved?.values?.length===9&&saved.puzzle.every(row=>row.length===9)&&saved.values.every(row=>row.length===9))return saved}catch(error){console.warn('Could not restore the saved Sudoku.',error)}return null}
 
 function saveStats(){localStorage.setItem('stillmindStats',JSON.stringify(state.stats));renderStats();if($('#progressScreen')&&!$('#progressScreen').classList.contains('hidden'))renderProgressDashboard()}
@@ -134,15 +135,19 @@ function renderProgressDashboardContent(){
     $('#progressDashboard').innerHTML='<div class="progress-render-error" role="status"><b>Choose a valid date range to view your progress.</b><p>Select one of the preset periods, or choose both dates in the custom range.</p></div>';
     return;
   }
-  const allTime=progressFilter.range==='all',sessions=state.stats.sessions.filter(session=>inProgressRange(session.startedAt,bounds)),startedAndCompleted=sessions.filter(session=>session.status==='completed'&&session.completedAt),completed=state.stats.sessions.filter(session=>session.status==='completed'&&inProgressRange(session.completedAt,bounds)),legacy=allTime?Math.max(0,state.stats.legacyFinished||0):0,playedCount=sessions.length+legacy,completedCount=completed.length+legacy;
+  const allTime=progressFilter.range==='all',sessions=state.stats.sessions.filter(session=>inProgressRange(session.startedAt,bounds)),completed=state.stats.sessions.filter(session=>session.status==='completed'&&inProgressRange(session.completedAt,bounds)),legacy=allTime?Math.max(0,state.stats.legacyFinished||0):0,playedCount=sessions.length+legacy,completedCount=completed.length+legacy;
   const durationSeconds=completed.reduce((total,session)=>total+(Number(session.durationSeconds)||0),0)+(allTime?(Number(state.stats.legacyMinutes)||0)*60:0),average=completedCount?durationSeconds/completedCount:null;
   const byLevel=Object.fromEntries(SUDOKU_LEVELS.map(level=>[level,sessions.filter(session=>session.difficulty===level).length]));
   const bestCount=Math.max(0,...Object.values(byLevel)),favorites=bestCount?SUDOKU_LEVELS.filter(level=>byLevel[level]===bestCount):[],favoriteLabel=favorites.length?favorites.join(' & '):'Not enough data';
   const rangeLabel=progressFilter.range==='all'?'All time':progressFilter.range==='custom'?`${formatProgressDate(progressFilter.from)} – ${formatProgressDate(progressFilter.to)}`:progressFilter.range==='7d'?'Last 7 days':progressFilter.range==='90d'?'Last 90 days':'Last 30 days';
   document.querySelectorAll('[data-progress-range]').forEach(button=>{const active=button.dataset.progressRange===progressFilter.range;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active))});
   const fromInput=$('#progressDateFrom'),toInput=$('#progressDateTo'),today=new Date();if(!fromInput.value)fromInput.value=localDateKey(new Date(today.getFullYear(),today.getMonth(),today.getDate()-29));if(!toInput.value)toInput.value=localDateKey(today);
-  const completionRate=playedCount?Math.round((startedAndCompleted.length+legacy)/playedCount*100):0;
   const kpi=(icon,title,value,detail)=>`<article class="analytics-kpi"><span class="analytics-kpi-icon" aria-hidden="true">${icon}</span><span class="analytics-kpi-label">${escapeHTML(title)}</span><b>${escapeHTML(value)}</b><small>${escapeHTML(detail)}</small></article>`;
+  const bestTimeDifficulty=SUDOKU_LEVELS.includes(progressFilter.bestTimeDifficulty)?progressFilter.bestTimeDifficulty:'Beginner';
+  const bestTimeRecords=completed.filter(session=>session.difficulty===bestTimeDifficulty&&session.durationSeconds!==null&&session.durationSeconds!==undefined&&Number.isFinite(Number(session.durationSeconds)));
+  const bestTime=bestTimeRecords.length?Math.min(...bestTimeRecords.map(session=>Number(session.durationSeconds))):null;
+  const bestTimeDetail=bestTime===null?`No completed ${bestTimeDifficulty} puzzles in this period`:`${bestTimeDifficulty} · fastest completed puzzle`;
+  const bestTimeKpi=`<article class="analytics-kpi best-time-kpi"><div class="analytics-kpi-top"><span class="analytics-kpi-icon" aria-hidden="true">◷</span><label class="best-time-filter"><span class="visually-hidden">Difficulty for best time</span><select data-best-time-difficulty aria-label="Filter best time by difficulty">${SUDOKU_LEVELS.map(level=>`<option value="${level}" ${level===bestTimeDifficulty?'selected':''}>${level}</option>`).join('')}</select></label></div><span class="analytics-kpi-label">Best time</span><b>${escapeHTML(bestTime===null?'—':formatDuration(bestTime))}</b><small>${escapeHTML(bestTimeDetail)}</small></article>`;
   const trend=createTrendBuckets(completed,bounds),trendMax=Math.max(1,...trend.map(bucket=>bucket.count));
   const trendMarkup=trend.length&&completed.length?`<div class="trend-chart" role="img" aria-label="${trend.map(bucket=>`${bucket.label}: ${bucket.count} completed`).join('; ')}">${trend.map(bucket=>`<div class="trend-column"><span class="trend-count">${bucket.count||''}</span><div class="trend-track"><i style="height:${bucket.count?Math.max(7,bucket.count/trendMax*100):2}%"></i></div><small>${bucket.label}</small></div>`).join('')}</div>`:`<div class="chart-empty"><span>◷</span><b>Your activity will appear here</b><p>Complete a puzzle and the trend will start to take shape.</p></div>`;
   const levelMax=Math.max(1,...Object.values(byLevel));
@@ -151,7 +156,7 @@ function renderProgressDashboardContent(){
   const maxTime=Math.max(1,...Object.values(timeByLevel).filter(Number.isFinite));
   const timeMarkup=SUDOKU_LEVELS.map(level=>`<div class="level-bar-row average-row"><span>${level}</span><div class="level-bar-track" role="progressbar" aria-label="Average solve time for ${level}" aria-valuemin="0" aria-valuemax="${maxTime}" aria-valuenow="${timeByLevel[level]||0}"><i style="width:${timeByLevel[level]?Math.max(4,timeByLevel[level]/maxTime*100):0}%"></i></div><b>${formatDuration(timeByLevel[level])}</b></div>`).join('');
   const pathMarkup=SUDOKU_LEVELS.map((level,index)=>`<div class="difficulty-step ${byLevel[level]?'played':''} ${favorites.includes(level)?'favorite':''}"><span class="difficulty-step-index">${index+1}</span><b>${level}</b><small>${byLevel[level]} ${byLevel[level]===1?'game':'games'}</small></div>`).join('');
-  $('#progressDashboard').innerHTML=`<div class="progress-period-label">${escapeHTML(rangeLabel)}</div><div class="analytics-kpis">${kpi('▦','Games played',playedCount,`${sessions.filter(session=>session.status!=='completed').length} unfinished in this period`)}${kpi('✓','Puzzles completed',completedCount,`${completionRate}% of games started in this period were completed`)}${kpi('◷','Average solve time',average===null?'—':formatDuration(average),'Completed puzzles only')}${kpi('✦','Favourite level',favoriteLabel,bestCount?`${bestCount} games started at this level`:'Play a few games to find your rhythm')}</div><div class="progress-chart-grid"><article class="progress-chart-card trend-card"><div class="chart-card-heading"><div><p class="eyebrow">COMPLETIONS</p><h2>Puzzle activity</h2></div><span>${completedCount} total</span></div><p class="chart-description">Completed puzzles over your selected time period.</p>${trendMarkup}</article><article class="progress-chart-card"><div class="chart-card-heading"><div><p class="eyebrow">PLAY MIX</p><h2>Difficulty levels</h2></div><span>Games started</span></div><p class="chart-description">See which levels you return to most.</p><div class="level-bars">${levelMarkup}</div></article><article class="progress-chart-card"><div class="chart-card-heading"><div><p class="eyebrow">SOLVING PACE</p><h2>Average solve time</h2></div><span>Finished only</span></div><p class="chart-description">Your average time at each difficulty.</p><div class="level-bars">${timeMarkup}</div></article><article class="progress-chart-card difficulty-journey-card"><div class="chart-card-heading"><div><p class="eyebrow">YOUR PATH</p><h2>Difficulty journey</h2></div><span>${escapeHTML(favoriteLabel)}</span></div><p class="chart-description">A view of the levels you’ve explored so far.</p><div class="difficulty-journey">${pathMarkup}</div></article></div>`;
+  $('#progressDashboard').innerHTML=`<div class="progress-period-label">${escapeHTML(rangeLabel)}</div><div class="analytics-kpis">${kpi('▦','Games played',playedCount,`${sessions.filter(session=>session.status!=='completed').length} unfinished in this period`)}${bestTimeKpi}${kpi('◷','Average solve time',average===null?'—':formatDuration(average),'Completed puzzles only')}${kpi('✦','Favourite level',favoriteLabel,bestCount?`${bestCount} games started at this level`:'Play a few games to find your rhythm')}</div><div class="progress-chart-grid"><article class="progress-chart-card trend-card"><div class="chart-card-heading"><div><p class="eyebrow">COMPLETIONS</p><h2>Puzzle activity</h2></div><span>${completedCount} total</span></div><p class="chart-description">Completed puzzles over your selected time period.</p>${trendMarkup}</article><article class="progress-chart-card"><div class="chart-card-heading"><div><p class="eyebrow">PLAY MIX</p><h2>Difficulty levels</h2></div><span>Games started</span></div><p class="chart-description">See which levels you return to most.</p><div class="level-bars">${levelMarkup}</div></article><article class="progress-chart-card"><div class="chart-card-heading"><div><p class="eyebrow">SOLVING PACE</p><h2>Average solve time</h2></div><span>Finished only</span></div><p class="chart-description">Your average time at each difficulty.</p><div class="level-bars">${timeMarkup}</div></article><article class="progress-chart-card difficulty-journey-card"><div class="chart-card-heading"><div><p class="eyebrow">YOUR PATH</p><h2>Difficulty journey</h2></div><span>${escapeHTML(favoriteLabel)}</span></div><p class="chart-description">A view of the levels you’ve explored so far.</p><div class="difficulty-journey">${pathMarkup}</div></article></div>`;
   $('#progressDataNote').textContent=state.stats.legacyFinished?`Your earlier ${state.stats.legacyFinished} completed ${state.stats.legacyFinished===1?'puzzle':'puzzles'} are included in all-time totals. Dates, difficulty, and solve times are recorded from now on. Play mix uses start dates; completions and solve times use finish dates. Progress is stored on this device.`:'This dashboard records game starts and completion times on this device. In-progress and abandoned games count as played; average solve time uses completed games. Play mix uses start dates; completions and solve times use finish dates.';
 }
 function formatCurrencyChanges(changes={}){
@@ -357,14 +362,14 @@ function startGame(level=state.level){
   if(!PUZZLES[level])level='Beginner';
   state.level=level;state.puzzle=PUZZLES[level].map(row=>row.slice());state.values=PUZZLES[level].map(row=>row.slice());
   localStorage.setItem('stillmindDifficulty',level);
-  state.notes=Array.from({length:81},()=>new Set());state.selected=null;state.gameId=createGameId();state.elapsed=0;state.startedAt=Date.now();state.sessionStartedAt=new Date(state.startedAt).toISOString();trackGameStarted(state.gameId,level,state.startedAt);
+  state.notes=Array.from({length:81},()=>new Set());state.selected=null;state.gameId=createGameId();state.elapsed=0;state.autoCompletePrompted=false;state.autoCompleting=false;state.autoRevealIndex=null;state.completionInProgress=false;state.startedAt=Date.now();state.sessionStartedAt=new Date(state.startedAt).toISOString();trackGameStarted(state.gameId,level,state.startedAt);
   $('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');
   document.querySelectorAll('.difficulty-switch button').forEach(b=>b.classList.toggle('active',b.dataset.level===level));
   $('#notesState').textContent=state.notesMode?'on':'off';$('#mistakesState').textContent=state.checkMistakes?'on':'off';
   $('#notesButton').classList.toggle('on',state.notesMode);$('#mistakesButton').classList.toggle('on',state.checkMistakes);
   renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame();
 }
-function resumeGame(saved=getSavedGame()){if(!saved)return startGame(state.level);state.level=saved.level||'Beginner';state.puzzle=saved.puzzle;state.values=saved.values;state.notes=(saved.notes||Array.from({length:81},()=>[])).map(s=>new Set(s));state.selected=saved.selected??null;state.gameId=saved.gameId||createGameId();state.elapsed=saved.elapsed||0;state.startedAt=Date.now()-state.elapsed*1000;state.sessionStartedAt=saved.sessionStartedAt||new Date(state.startedAt).toISOString();trackGameStarted(state.gameId,state.level,state.sessionStartedAt);$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame()}
+function resumeGame(saved=getSavedGame()){if(!saved)return startGame(state.level);state.level=saved.level||'Beginner';state.puzzle=saved.puzzle;state.values=saved.values;state.notes=(saved.notes||Array.from({length:81},()=>[])).map(s=>new Set(s));state.selected=saved.selected??null;state.gameId=saved.gameId||createGameId();state.elapsed=saved.elapsed||0;state.autoCompletePrompted=Boolean(saved.autoCompletePrompted);state.autoCompleting=false;state.autoRevealIndex=null;state.completionInProgress=false;state.startedAt=Date.now()-state.elapsed*1000;state.sessionStartedAt=saved.sessionStartedAt||new Date(state.startedAt).toISOString();trackGameStarted(state.gameId,state.level,state.sessionStartedAt);$('#homeScreen').classList.add('hidden');$('#gameScreen').classList.remove('hidden');$('#collectionsScreen').classList.add('hidden');$('#progressScreen').classList.add('hidden');$('.bottom-nav').classList.add('hidden');renderBoard();renderPad();clearInterval(state.timerInterval);state.timerInterval=setInterval(updateTimer,1000);updateTimer();saveActiveGame()}
 function updateTimer(){state.elapsed=Math.floor((Date.now()-state.startedAt)/1000);$('#timer').textContent=`${String(Math.floor(state.elapsed/60)).padStart(2,'0')}:${String(state.elapsed%60).padStart(2,'0')}`;if(state.elapsed%5===0)saveActiveGame()}
 function getCandidates(r,c){
   if(state.values[r][c])return [];
@@ -377,20 +382,26 @@ function cellIndex(r,c){return r*9+c}
 function renderBoard(){
   const board=$('#board');board.innerHTML='';
   for(let r=0;r<9;r++)for(let c=0;c<9;c++){
-    const idx=cellIndex(r,c),v=state.values[r][c],el=document.createElement('button');el.className='cell';el.setAttribute('role','gridcell');el.setAttribute('aria-label',`Row ${r+1}, column ${c+1}${v?`, ${v}`:''}`);el.setAttribute('aria-selected',String(state.selected===idx));el.dataset.index=idx;
+    const idx=cellIndex(r,c),v=state.values[r][c],el=document.createElement('button');el.className='cell';el.setAttribute('role','gridcell');el.setAttribute('aria-label',`Row ${r+1}, column ${c+1}${v?`, ${v}`:''}`);el.setAttribute('aria-selected',String(state.selected===idx));el.dataset.index=idx;el.disabled=state.autoCompleting;if(state.autoRevealIndex===idx)el.classList.add('auto-fill-pop');
     if(state.puzzle[r][c])el.classList.add('given');
     if(state.selected===idx)el.classList.add('selected');
     if(state.selected!==null){const sr=Math.floor(state.selected/9),sc=state.selected%9,sv=state.values[sr][sc];if((sr===r||sc===c||(Math.floor(sr/3)===Math.floor(r/3)&&Math.floor(sc/3)===Math.floor(c/3)))&&idx!==state.selected)el.classList.add('peer');if(sv&&v===sv&&idx!==state.selected)el.classList.add('same-number')}
     if(v){el.textContent=v;if(state.checkMistakes&&v!==SOLUTION[r][c]&&!state.puzzle[r][c])el.classList.add('mistake')}
     else if(state.notes[idx].size){const note=document.createElement('span');note.className='notes';note.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<span>${state.notes[idx].has(n)?n:''}</span>`).join('');el.appendChild(note)}
     el.addEventListener('click',()=>{
+      if(state.autoCompleting)return;
+      if(state.magicPen&&state.magicNumber!==null&&!v&&!state.puzzle[r][c]){
+        state.selected=idx;
+        enterNumber(state.magicNumber);
+        return
+      }
       const selectedValue=state.selected===null?0:state.values[Math.floor(state.selected/9)][state.selected%9];
       state.selected=v&&selectedValue===v?null:idx;
       renderBoard();saveActiveGame()
     });board.appendChild(el)
   }
 }
-function renderPad(){const pad=$('#numberPad');pad.innerHTML='';for(let n=1;n<=9;n++){const b=document.createElement('button');b.textContent=n;b.setAttribute('aria-label',`Enter ${n}`);const count=state.values.flat().filter(v=>v===n).length;b.disabled=count>=9;b.onclick=()=>enterNumber(n);pad.appendChild(b)}}
+function renderPad(){const pad=$('#numberPad');pad.innerHTML='';for(let n=1;n<=9;n++){const b=document.createElement('button');b.textContent=n;b.setAttribute('aria-label',state.magicPen?`Select ${n} for Magic Pen`:`Enter ${n}`);const count=state.values.flat().filter(v=>v===n).length;b.disabled=state.autoCompleting||count>=9;b.classList.toggle('selected',state.magicPen&&state.magicNumber===n);b.setAttribute('aria-pressed',String(state.magicPen&&state.magicNumber===n));b.onclick=()=>{if(state.magicPen){state.magicNumber=n;renderPad();showToast(`${n} selected. Tap empty cells to place it.`)}else enterNumber(n)};pad.appendChild(b)}}
 document.addEventListener('click',event=>{
   if(state.selected===null)return;
   const selectedValue=state.values[Math.floor(state.selected/9)][state.selected%9];
@@ -400,14 +411,55 @@ document.addEventListener('click',event=>{
   state.selected=null;renderBoard();saveActiveGame();
 });
 function enterNumber(n){
+  if(state.autoCompleting)return;
   if(state.selected===null){showToast('Choose a square first.');return}
   const r=Math.floor(state.selected/9),c=state.selected%9;if(state.puzzle[r][c]){showToast('That number is part of the puzzle.');return}
   if(state.notesMode&&!state.values[r][c]){state.notes[state.selected].has(n)?state.notes[state.selected].delete(n):state.notes[state.selected].add(n)}else{state.values[r][c]=n;state.notes[state.selected].clear()}
-  renderBoard();renderPad();saveActiveGame();if(state.values.flat().every(Boolean))finishGame()
+  renderBoard();renderPad();saveActiveGame();if(state.values.flat().every(Boolean))finishGame();else maybeOfferAutoComplete()
+}
+function hasIncorrectEntries(){return state.values.some((row,r)=>row.some((value,c)=>value!==0&&value!==SOLUTION[r][c]))}
+function maybeOfferAutoComplete(){
+  if(state.autoCompletePrompted||state.autoCompleting||!state.gameId||hasIncorrectEntries())return;
+  const emptyCount=state.values.flat().filter(value=>value===0).length;
+  if(emptyCount<5||emptyCount>7)return;
+  state.autoCompletePrompted=true;
+  saveActiveGame();
+  showModal('Almost there! Would you like to complete the puzzle automatically?','<p>We can reveal the remaining numbers one at a time. Your entries are correct, and the puzzle will finish through the usual completion flow.</p>',[
+    {label:'No, I’ll finish myself.'},
+    {label:'Yes, complete it',primary:true,onClick:autoCompletePuzzle}
+  ],'A LITTLE FINISHING TOUCH');
+}
+function setAutoCompleteControlsDisabled(disabled){
+  ['#notesButton','#mistakesButton','#hintButton','#eraseButton','#magicPenButton'].forEach(selector=>{const control=$(selector);if(control)control.disabled=disabled});
+}
+async function autoCompletePuzzle(){
+  if(state.autoCompleting||!state.gameId||hasIncorrectEntries())return;
+  const remaining=[];
+  for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(!state.puzzle[r][c]&&!state.values[r][c])remaining.push({r,c,index:cellIndex(r,c)});
+  if(!remaining.length)return;
+  state.autoCompleting=true;
+  setAutoCompleteControlsDisabled(true);
+  renderBoard();renderPad();
+  for(const cell of remaining){
+    await new Promise(resolve=>setTimeout(resolve,125));
+    if(!state.puzzle[cell.r][cell.c]&&!state.values[cell.r][cell.c]){
+      state.values[cell.r][cell.c]=SOLUTION[cell.r][cell.c];
+      state.notes[cell.index].clear();
+      state.autoRevealIndex=cell.index;
+      renderBoard();renderPad();saveActiveGame();
+    }
+  }
+  state.autoCompleting=false;
+  state.autoRevealIndex=null;
+  setAutoCompleteControlsDisabled(false);
+  renderBoard();renderPad();saveActiveGame();
+  if(state.values.flat().every(Boolean))finishGame();
 }
 function finishGame(){
   const wrong=state.values.some((row,r)=>row.some((v,c)=>v!==SOLUTION[r][c]));
   if(wrong){showToast('A few numbers need another look. Turn on mistake check or ask for a hint.');return}
+  if(state.completionInProgress||!state.gameId)return;
+  state.completionInProgress=true;
   const completedGameId=state.gameId||createGameId();
   const rewardResult=window.StillmindRewards.recordGameCompletion(completedGameId,state.level,new Date(),state.elapsed);
   const transaction=rewardResult.applied?rewardResult.record?.transactions.find(item=>item.id===`game:${completedGameId}`):null;
@@ -426,7 +478,7 @@ function teachMe(){
   const h=basicHint();if(!h){showToast('This board is complete.');return}
   const index=cellIndex(h.r,h.c);state.selected=index;renderBoard();
   if(h.kind==='single'){
-    showModal('A number has only one place to go.',`<p>Look at <b>row ${h.r+1}, column ${h.c+1}</b>.</p><div class="hint-callout">${h.n} is the only number that can fit here. The other digits are already used in this square’s row, column, or 3×3 box.</div><p class="hint-step">This is called a <b>naked single</b>—a great first pattern to learn.</p>`,[{label:'Place '+h.n,primary:true,onClick:()=>{state.values[h.r][h.c]=h.n;renderBoard();renderPad();saveActiveGame();if(state.values.flat().every(Boolean))finishGame()}},{label:'I’ll try myself'}],'SUDOKU LESSON');
+    showModal('A number has only one place to go.',`<p>Look at <b>row ${h.r+1}, column ${h.c+1}</b>.</p><div class="hint-callout">${h.n} is the only number that can fit here. The other digits are already used in this square’s row, column, or 3×3 box.</div><p class="hint-step">This is called a <b>naked single</b>—a great first pattern to learn.</p>`,[{label:'Place '+h.n,primary:true,onClick:()=>{state.values[h.r][h.c]=h.n;renderBoard();renderPad();saveActiveGame();if(state.values.flat().every(Boolean))finishGame();else maybeOfferAutoComplete()}},{label:'I’ll try myself'}],'SUDOKU LESSON');
   }else{
     showModal('Let’s scan the possibilities.',`<p>We’ve highlighted <b>row ${h.r+1}, column ${h.c+1}</b> because it has one of the fewest open choices right now.</p><div class="hint-callout">The possible digits here are <b>${h.candidates.join(', ')}</b>. Each filled number in the same row, column, and 3×3 box rules out a candidate.</div><p class="hint-step">Try scanning one digit at a time across the highlighted row or box. We’ll add deeper pattern lessons as your practice grows.</p>`,[{label:'Got it',primary:true}],'SUDOKU LESSON');
   }
@@ -498,6 +550,7 @@ function openSettings(){const theme=localStorage.getItem('stillmindTheme')||'gre
 $('#playButton').addEventListener('click',chooseDifficulty);
 $('#backButton').addEventListener('click',()=>{saveActiveGame();showHome()});
 $('#notesButton').addEventListener('click',()=>{state.notesMode=!state.notesMode;$('#notesState').textContent=state.notesMode?'on':'off';$('#notesButton').classList.toggle('on',state.notesMode);showToast(state.notesMode?'Notes are on.':'Notes are off.')});
+$('#magicPenButton').addEventListener('click',()=>{state.magicPen=!state.magicPen;if(!state.magicPen)state.magicNumber=null;$('#magicPenState').textContent=state.magicPen?'on':'off';$('#magicPenButton').classList.toggle('on',state.magicPen);$('#magicPenButton').setAttribute('aria-pressed',String(state.magicPen));renderPad();showToast(state.magicPen?'Magic Pen is on. Choose a number, then tap empty cells.':'Magic Pen is off.')});
 $('#mistakesButton').addEventListener('click',()=>{state.checkMistakes=!state.checkMistakes;$('#mistakesState').textContent=state.checkMistakes?'on':'off';$('#mistakesButton').classList.toggle('on',state.checkMistakes);renderBoard();showToast(state.checkMistakes?'Mistake checking is on.':'Mistake checking is off.')});
 $('#hintButton').addEventListener('click',teachMe);
 $('#eraseButton').addEventListener('click',()=>{if(state.selected===null)return showToast('Choose a square first.');const r=Math.floor(state.selected/9),c=state.selected%9;if(state.puzzle[r][c])return showToast('That number is part of the puzzle.');state.values[r][c]=0;state.notes[state.selected].clear();renderBoard();renderPad();saveActiveGame()});
@@ -510,6 +563,7 @@ $('#collectionsTab').addEventListener('click',showCollections);
 $('#shopButton').addEventListener('click',()=>{collectionUI.view=collectionUI.view==='shop'?'album':'shop';collectionUI.category='all';renderCollectionScreen(window.StillmindRewards.getSnapshot())});
 $('#progressTab').addEventListener('click',showProgress);
 $('#progressRanges').addEventListener('click',event=>{const button=event.target.closest('[data-progress-range]');if(!button||!event.currentTarget.contains(button))return;progressFilter.range=button.dataset.progressRange;renderProgressDashboard()});
+$('#progressDashboard').addEventListener('change',event=>{if(!event.target.matches('[data-best-time-difficulty]'))return;progressFilter.bestTimeDifficulty=event.target.value;renderProgressDashboard()});
 $('#applyProgressDates').addEventListener('click',()=>{const from=$('#progressDateFrom').value,to=$('#progressDateTo').value;if(!from||!to||from>to){showToast('Choose a valid start and end date.');return}if(to>localDateKey(new Date())){showToast('The end date must be today or earlier.');return}progressFilter.from=from;progressFilter.to=to;progressFilter.range='custom';renderProgressDashboard()});
 $('#homeTab').addEventListener('click',()=>{showHome();window.scrollTo({top:0,behavior:'smooth'})});
 $('.brand').addEventListener('click',event=>{event.preventDefault();showHome();window.scrollTo({top:0,behavior:'smooth'})});
